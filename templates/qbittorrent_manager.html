@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>qBittorrent Manager - IPTorrents Browser</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/cookie_manager.css') }}">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-top">
+                <a href="/" class="btn btn-back">← Back to Browser</a>
+                <div class="header-title">
+                    <h1>qBittorrent Manager</h1>
+                    <p class="subtitle">Configure qBittorrent integration</p>
+                </div>
+                <button id="help-btn" class="btn btn-icon" title="Help & Setup Instructions">
+                    <span class="icon-help">❓</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <div class="cookie-manager-content">
+
+            <!-- Connection Status Card -->
+            <section class="card">
+                <h2>Connection Status</h2>
+                <div id="connection-status" class="status-container">
+                    <div class="loading">Loading status...</div>
+                </div>
+            </section>
+
+            <!-- Configuration Card -->
+            <section class="card">
+                <h2>Configuration</h2>
+                <div class="qbt-config-section">
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" id="qbt-enabled">
+                            Enable qBittorrent integration
+                        </label>
+                        <small class="setting-info">Send torrents directly to qBittorrent from the browser</small>
+                    </div>
+
+                    <div id="qbt-config-fields" style="display: none;">
+                        <div class="form-group">
+                            <label for="qbt-host">qBittorrent Host</label>
+                            <input type="text" id="qbt-host" class="input-field"
+                                   placeholder="http://localhost:8080">
+                            <small class="setting-info">Web UI address (e.g., http://localhost:8080 or http://theknox:5008)</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="qbt-username">Username</label>
+                            <input type="text" id="qbt-username" class="input-field"
+                                   placeholder="admin">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="qbt-password">Password</label>
+                            <input type="password" id="qbt-password" class="input-field"
+                                   placeholder="Enter password">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="qbt-category">Default Category</label>
+                            <input type="text" id="qbt-category" class="input-field"
+                                   placeholder="games">
+                            <small class="setting-info">Category in qBittorrent (leave empty for none)</small>
+                        </div>
+
+                        <div class="setting-item">
+                            <label>
+                                <input type="checkbox" id="qbt-use-category" checked>
+                                Use category when adding torrents
+                            </label>
+                        </div>
+
+                        <div class="setting-item">
+                            <label>
+                                <input type="checkbox" id="qbt-start-paused">
+                                Add torrents in paused state
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="button-group">
+                        <button id="save-config-btn" class="btn btn-primary">
+                            <span class="btn-text">Save Configuration</span>
+                            <span class="btn-loading" style="display: none;">Saving...</span>
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Test Connection Card -->
+            <section class="card">
+                <h2>Test Connection</h2>
+                <div class="validation-section">
+                    <p>Test the connection to your qBittorrent instance to ensure it's configured correctly.</p>
+                    <button id="test-connection-btn" class="btn btn-primary">
+                        <span class="btn-text">Test Connection</span>
+                        <span class="btn-loading" style="display: none;">Testing...</span>
+                    </button>
+                    <div id="test-result" class="test-result" style="display: none;">
+                        <!-- Test results populated by JavaScript -->
+                    </div>
+                </div>
+            </section>
+
+        </div>
+    </div>
+
+    <!-- Help Modal -->
+    <div id="help-modal" class="modal" style="display: none;">
+        <div class="modal-overlay"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Help & Setup Instructions</h2>
+                <button class="modal-close" id="close-help">&times;</button>
+            </div>
+
+            <div class="modal-body">
+                <section class="help-section">
+                    <h3>How to enable qBittorrent Web UI:</h3>
+                    <ol>
+                        <li>Open qBittorrent and go to <strong>Tools</strong> → <strong>Options</strong> (or <strong>Preferences</strong>)</li>
+                        <li>Navigate to the <strong>Web UI</strong> tab</li>
+                        <li>Check <strong>"Enable the Web User Interface (Remote control)"</strong></li>
+                        <li>Set a port (default is <code>8080</code>)</li>
+                        <li>Set a username and password for authentication</li>
+                        <li>Click <strong>OK</strong> to save settings</li>
+                        <li>Enter those credentials in the Configuration section</li>
+                    </ol>
+                </section>
+
+                <section class="help-section">
+                    <h3>Common Issues:</h3>
+                    <div class="info-box">
+                        <ul>
+                            <li><strong>Connection refused:</strong> Make sure qBittorrent is running and Web UI is enabled</li>
+                            <li><strong>Authentication failed:</strong> Verify your username and password are correct</li>
+                            <li><strong>Cannot reach server:</strong> Check the host address and port number</li>
+                            <li><strong>HTTPS issues:</strong> If using HTTPS, make sure the certificate is valid</li>
+                            <li><strong>Firewall blocking:</strong> Ensure your firewall allows connections to the qBittorrent port</li>
+                        </ul>
+                    </div>
+                </section>
+
+                <section class="help-section">
+                    <h3>Example Configurations:</h3>
+                    <div class="example-box">
+                        <strong>Local machine:</strong><br>
+                        <code>http://localhost:8080</code><br><br>
+                        <strong>Remote machine (IP):</strong><br>
+                        <code>http://192.168.1.100:8080</code><br><br>
+                        <strong>Named host:</strong><br>
+                        <code>http://theknox:5008</code>
+                    </div>
+                </section>
+
+                <section class="help-section">
+                    <h3>Features:</h3>
+                    <ul>
+                        <li><strong>Enable integration:</strong> Adds "Send to qBittorrent" buttons to torrents in the browser</li>
+                        <li><strong>Default category:</strong> Automatically categorize torrents (e.g., "games", "movies")</li>
+                        <li><strong>Start paused:</strong> Add torrents without automatically starting downloads</li>
+                    </ul>
+                </section>
+            </div>
+
+            <div class="modal-footer">
+                <button id="close-help-footer" class="btn btn-primary">Got it!</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <script src="{{ url_for('static', filename='js/qbittorrent_manager.js') }}"></script>
+</body>
+</html>

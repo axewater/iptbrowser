@@ -651,6 +651,12 @@ def cookie_manager():
     return render_template('cookie_manager.html')
 
 
+@app.route('/qbittorrent-manager')
+def qbittorrent_manager():
+    """qBittorrent manager page"""
+    return render_template('qbittorrent_manager.html')
+
+
 @app.route('/api/cookie/status')
 def api_cookie_status():
     """Get current cookie status"""

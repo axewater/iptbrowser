@@ -31,7 +31,11 @@ const AppState = {
     },
 
     // UI state
-    isLoading: false
+    isLoading: false,
+
+    // qBittorrent integration state
+    qbittorrentEnabled: false,
+    qbittorrentConfig: null
 };
 
 // Search debounce timer
@@ -64,10 +68,13 @@ async function initializeApp() {
     // 2. Load user info
     await loadUserInfo();
 
-    // 3. Apply filters and display
+    // 3. Load qBittorrent settings
+    await loadQbittorrentSettings();
+
+    // 4. Apply filters and display
     applyFiltersAndSort();
 
-    // 4. Check if cache is old, offer to refresh
+    // 5. Check if cache is old, offer to refresh
     if (shouldAutoRefresh()) {
         showRefreshPrompt();
     }
@@ -658,6 +665,20 @@ function createTorrentRow(torrent) {
     actionsCell.className = 'actions-cell';
 
     if (torrent.download_link) {
+        // Show qBittorrent button if enabled
+        if (AppState.qbittorrentEnabled) {
+            const qbtBtn = document.createElement('button');
+            qbtBtn.className = 'btn btn-qbittorrent';
+            qbtBtn.textContent = 'Send to qBittorrent';
+            qbtBtn.title = 'Send to qBittorrent';
+            qbtBtn.onclick = (e) => {
+                e.preventDefault();
+                sendToQbittorrent(torrent.download_link, torrent.name, qbtBtn);
+            };
+            actionsCell.appendChild(qbtBtn);
+        }
+
+        // Always show download link
         const downloadBtn = document.createElement('a');
         downloadBtn.href = torrent.download_link;
         downloadBtn.className = 'btn btn-download';
@@ -883,7 +904,7 @@ function loadSettingsIntoUI() {
     document.getElementById('setting-show-refresh-prompt').checked = settings.showRefreshPrompt;
 }
 
-function saveSettingsFromUI() {
+async function saveSettingsFromUI() {
     const settings = {
         timeWindow: parseInt(document.getElementById('setting-time-window').value),
         autoRefresh: {
@@ -900,6 +921,7 @@ function saveSettingsFromUI() {
     };
 
     saveSettings(settings);
+
     closeSettings();
 
     // Show success message
@@ -1085,6 +1107,69 @@ function loadSavedFilters() {
 function loadSavedSettings() {
     // Load time window setting
     // (Already handled in getTimeWindowDays())
+}
+
+// ===================================================================
+// QBITTORRENT INTEGRATION
+// ===================================================================
+
+async function loadQbittorrentSettings() {
+    try {
+        const response = await fetch('/api/qbittorrent/config');
+        const config = await response.json();
+        AppState.qbittorrentEnabled = config.enabled;
+        AppState.qbittorrentConfig = config;
+        console.log('qBittorrent integration:', config.enabled ? 'enabled' : 'disabled');
+    } catch (error) {
+        console.error('Error loading qBittorrent settings:', error);
+        AppState.qbittorrentEnabled = false;
+    }
+}
+
+async function sendToQbittorrent(torrentUrl, torrentName, buttonEl) {
+    // Disable button and show loading state
+    buttonEl.disabled = true;
+    buttonEl.classList.add('sending');
+    const originalText = buttonEl.textContent;
+    buttonEl.textContent = 'Sending...';
+
+    try {
+        const response = await fetch('/api/qbittorrent/add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                torrent_url: torrentUrl,
+                torrent_name: torrentName
+            })
+        });
+
+        const result = await response.json();
+
+        if (response.ok && result.success) {
+            // Success
+            buttonEl.textContent = '✓ Added!';
+            buttonEl.classList.add('success');
+            showToast(`Added "${torrentName}" to qBittorrent`, 'success');
+
+            // Reset after 2 seconds
+            setTimeout(() => {
+                buttonEl.textContent = originalText;
+                buttonEl.classList.remove('sending', 'success');
+                buttonEl.disabled = false;
+            }, 2000);
+        } else {
+            // Error
+            showToast(result.message || 'Failed to add torrent', 'error');
+            buttonEl.textContent = originalText;
+            buttonEl.classList.remove('sending');
+            buttonEl.disabled = false;
+        }
+    } catch (error) {
+        showToast('Network error: Could not reach server', 'error');
+        buttonEl.textContent = originalText;
+        buttonEl.classList.remove('sending');
+        buttonEl.disabled = false;
+    }
 }
 
 // ===================================================================

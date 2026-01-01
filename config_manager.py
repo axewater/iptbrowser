@@ -112,6 +112,18 @@ class ConfigManager:
             "app_settings": {
                 "cache_duration": 15,
                 "default_time_window_days": 30
+            },
+            "qbittorrent": {
+                "enabled": False,
+                "host": "http://theknox:5008",
+                "username": "",
+                "password": "",
+                "category": "games",
+                "use_category": True,
+                "session": {
+                    "sid": None,
+                    "expires_at": None
+                }
             }
         }
 
@@ -193,6 +205,115 @@ class ConfigManager:
             self.config['app_settings'] = {}
 
         self.config['app_settings'][key] = value
+        return self.save_config()
+
+    # ============================================================================
+    # qBittorrent Configuration Methods
+    # ============================================================================
+
+    def get_qbittorrent_config(self):
+        """Get full qBittorrent configuration"""
+        if self.config is None:
+            self.load_config()
+
+        return self.config.get('qbittorrent', self._create_default_config()['qbittorrent'])
+
+    def get_qbittorrent_enabled(self):
+        """Check if qBittorrent integration is enabled"""
+        config = self.get_qbittorrent_config()
+        return config.get('enabled', False)
+
+    def get_qbittorrent_host(self):
+        """Get qBittorrent host URL"""
+        config = self.get_qbittorrent_config()
+        return config.get('host', 'http://theknox:5008')
+
+    def get_qbittorrent_credentials(self):
+        """Get qBittorrent credentials as tuple (username, password)"""
+        config = self.get_qbittorrent_config()
+        return (config.get('username', ''), config.get('password', ''))
+
+    def get_qbittorrent_category(self):
+        """Get default qBittorrent category"""
+        config = self.get_qbittorrent_config()
+        return config.get('category', 'games')
+
+    def get_qbittorrent_use_category(self):
+        """Check if category should be used when adding torrents"""
+        config = self.get_qbittorrent_config()
+        return config.get('use_category', True)
+
+    def set_qbittorrent_config(self, enabled=None, host=None, username=None, password=None, category=None, use_category=None):
+        """
+        Update qBittorrent configuration
+
+        Args:
+            enabled: Enable/disable integration
+            host: qBittorrent host URL
+            username: qBittorrent username
+            password: qBittorrent password
+            category: Default category for torrents
+            use_category: Whether to use category when adding torrents
+        """
+        if self.config is None:
+            self.load_config()
+
+        if 'qbittorrent' not in self.config:
+            self.config['qbittorrent'] = self._create_default_config()['qbittorrent']
+
+        if enabled is not None:
+            self.config['qbittorrent']['enabled'] = enabled
+        if host is not None:
+            self.config['qbittorrent']['host'] = host
+        if username is not None:
+            self.config['qbittorrent']['username'] = username
+        if password is not None:
+            self.config['qbittorrent']['password'] = password
+        if category is not None:
+            self.config['qbittorrent']['category'] = category
+        if use_category is not None:
+            self.config['qbittorrent']['use_category'] = use_category
+
+        return self.save_config()
+
+    def set_qbittorrent_session(self, sid, expires_at):
+        """
+        Cache qBittorrent session
+
+        Args:
+            sid: Session ID (SID cookie value)
+            expires_at: Session expiration timestamp (ISO format string)
+        """
+        if self.config is None:
+            self.load_config()
+
+        if 'qbittorrent' not in self.config:
+            self.config['qbittorrent'] = self._create_default_config()['qbittorrent']
+
+        if 'session' not in self.config['qbittorrent']:
+            self.config['qbittorrent']['session'] = {}
+
+        self.config['qbittorrent']['session']['sid'] = sid
+        self.config['qbittorrent']['session']['expires_at'] = expires_at
+
+        return self.save_config()
+
+    def clear_qbittorrent_session(self):
+        """Invalidate cached qBittorrent session"""
+        if self.config is None:
+            self.load_config()
+
+        if 'qbittorrent' not in self.config:
+            return True
+
+        if 'session' not in self.config['qbittorrent']:
+            return True
+
+        self.config['qbittorrent']['session'] = {
+            'sid': None,
+            'expires_at': None
+        }
+
         return self.save_config()
 
     def migrate_from_env(self):

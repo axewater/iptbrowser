@@ -259,6 +259,42 @@ body {
     transform: translateY(-1px);
 }
 
+.btn-qbittorrent {
+    padding: 8px 16px;
+    background-color: #2196F3;
+    color: white;
+    font-size: 0.85rem;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-block;
+    margin-right: 4px;
+    transition: all 0.2s ease;
+}
+
+.btn-qbittorrent:hover:not(:disabled) {
+    background-color: #1976D2;
+    transform: translateY(-1px);
+}
+
+.btn-qbittorrent:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.btn-qbittorrent.sending {
+    background-color: #888;
+}
+
+.btn-qbittorrent.success {
+    background-color: var(--success);
+}
+
+.actions-cell {
+    white-space: nowrap;
+}
+
 /* Results Area */
 .results {
     background-color: var(--bg-secondary);

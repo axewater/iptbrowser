@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m py_compile:*)",
+      "Bash(python -m pip:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(git grep:*)",
+      "WebSearch",
+      "Bash(python scraper.py:*)",
+      "Bash(python test_parse2.py:*)",
+      "Bash(python test_parse3.py:*)",
+      "Bash(python test_parse4.py:*)",
+      "Bash(find:*)"
+    ]
+  }
+}
