@@ -329,18 +329,43 @@ class IPTorrentsScraper:
         size = size_match.group(0) if size_match else 'Unknown'
 
         # Extract seeders, leechers, snatched
-        # These are usually numeric values in cells
-        numbers = []
-        for cell in cells:
-            text = cell.get_text(strip=True)
-            # Look for pure numbers
-            if text.isdigit():
-                numbers.append(int(text))
+        # IPTorrents has malformed HTML where the last 3 cells have nested <td> tags
+        # We need to extract only the immediate text content (before nested tags)
+        seeders = 0
+        leechers = 0
+        snatched = 0
 
-        # Heuristic: usually seeders, leechers, snatched are the last numeric values
-        seeders = numbers[-3] if len(numbers) >= 3 else 0
-        leechers = numbers[-2] if len(numbers) >= 2 else 0
-        snatched = numbers[-1] if len(numbers) >= 1 else 0
+        # The last 3 cells contain snatched (downloads), seeders, leechers in that order
+        # Column order: ... size, snatches, seeders, leechers
+        # But they have nested <td> tags, so we extract direct text only
+        if len(cells) >= 3:
+            # Get the last 3 cells in correct order
+            snatched_cell = cells[-3]  # Cell 6: Snatches (downloads)
+            seeder_cell = cells[-2]    # Cell 7: Seeders
+            leecher_cell = cells[-1]   # Cell 8: Leechers
+
+            # Extract only the direct text content (before any nested tags)
+            # Use .contents[0] to get the first text node
+            try:
+                snatched_text = str(snatched_cell.contents[0]).strip() if snatched_cell.contents else ''
+                if snatched_text.isdigit():
+                    snatched = int(snatched_text)
+            except (IndexError, ValueError, AttributeError):
+                pass
+
+            try:
+                seeder_text = str(seeder_cell.contents[0]).strip() if seeder_cell.contents else ''
+                if seeder_text.isdigit():
+                    seeders = int(seeder_text)
+            except (IndexError, ValueError, AttributeError):
+                pass
+
+            try:
+                leecher_text = str(leecher_cell.contents[0]).strip() if leecher_cell.contents else ''
+                if leecher_text.isdigit():
+                    leechers = int(leecher_text)
+            except (IndexError, ValueError, AttributeError):
+                pass
 
         # Extract upload time
         # Look for patterns like "10.9 hours ago", "1.2 days ago"
