@@ -31,11 +31,15 @@ CATEGORIES = {
 class IPTorrentsScraper:
     """Scraper for IPTorrents site"""
 
-    def __init__(self):
-        """Initialize scraper with cookie from .env"""
-        cookie_string = os.getenv('IPTORRENTS_COOKIE')
+    def __init__(self, config_manager=None):
+        """Initialize scraper with cookie from ConfigManager"""
+        from config_manager import ConfigManager
+
+        self.config_manager = config_manager or ConfigManager()
+        cookie_string = self.config_manager.get_cookie()
+
         if not cookie_string:
-            raise ValueError("IPTORRENTS_COOKIE not found in .env file")
+            raise ValueError("Cookie not found in config. Please configure via /cookie-manager")
 
         # Parse cookie string
         self.cookies = {}
@@ -47,6 +51,21 @@ class IPTorrentsScraper:
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
+
+    def reload_cookie(self):
+        """Hot reload cookie from config without restarting scraper"""
+        self.config_manager.load_config()
+        cookie_string = self.config_manager.get_cookie()
+
+        if not cookie_string:
+            raise ValueError("Cookie not found in config. Please configure via /cookie-manager")
+
+        # Re-parse cookie string
+        self.cookies = {}
+        for item in cookie_string.split('; '):
+            if '=' in item:
+                key, value = item.split('=', 1)
+                self.cookies[key] = value
 
     def fetch_torrents(self, categories=['PC-ISO', 'PC-Rip'], limit=None, days=None):
         """

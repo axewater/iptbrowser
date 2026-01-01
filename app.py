@@ -8,9 +8,14 @@ import os
 from datetime import datetime, timedelta
 from flask import Flask, render_template, jsonify, request
 from scraper import IPTorrentsScraper, CATEGORIES
+from config_manager import ConfigManager
 
 app = Flask(__name__)
 app.config['JSON_SORT_KEYS'] = False
+
+# Global config manager and scraper instances
+config_manager = ConfigManager()
+scraper_instance = None
 
 # Cache configuration
 CACHE_FILE = 'cache.json'
@@ -27,6 +32,40 @@ torrents_cache = {
     },
     'data': []
 }
+
+
+def get_scraper():
+    """Get or create scraper instance (for hot reload support)"""
+    global scraper_instance
+    if scraper_instance is None:
+        scraper_instance = IPTorrentsScraper(config_manager=config_manager)
+    return scraper_instance
+
+
+def mask_cookie(cookie_string):
+    """
+    Mask cookie for security (show first/last 4 chars)
+
+    Args:
+        cookie_string: Cookie string like "uid=123456; pass=abcdef"
+
+    Returns:
+        str: Masked cookie like "uid=1234...56; pass=abcd...ef"
+    """
+    if not cookie_string or len(cookie_string) < 20:
+        return '****'
+
+    parts = []
+    for item in cookie_string.split('; '):
+        if '=' in item:
+            key, value = item.split('=', 1)
+            if len(value) > 8:
+                masked = f"{value[:4]}...{value[-4:]}"
+            else:
+                masked = '****'
+            parts.append(f"{key}={masked}")
+
+    return '; '.join(parts)
 
 
 def load_cache():
@@ -227,7 +266,7 @@ def refresh_torrents(mode='full', categories=None, days=None, force=False):
         print(f"Fetching full data (last {days} days)...")
 
         try:
-            scraper = IPTorrentsScraper()
+            scraper = get_scraper()
             torrents = scraper.fetch_torrents(categories=categories, days=days)
 
             # Build category metadata
@@ -285,7 +324,7 @@ def _incremental_refresh(categories):
                 newest_timestamps[cat] = categories_meta[cat].get('newest_timestamp')
 
         # Fetch incremental updates
-        scraper = IPTorrentsScraper()
+        scraper = get_scraper()
         new_torrents = scraper.fetch_incremental(categories, newest_timestamps)
 
         if not new_torrents:
@@ -567,16 +606,218 @@ def api_stats():
     })
 
 
+# ============================================================================
+# Cookie Manager Routes
+# ============================================================================
+
+@app.route('/cookie-manager')
+def cookie_manager():
+    """Cookie manager page"""
+    return render_template('cookie_manager.html')
+
+
+@app.route('/api/cookie/status')
+def api_cookie_status():
+    """Get current cookie status"""
+    try:
+        cookie = config_manager.get_cookie()
+        last_validated = config_manager.get_last_validated()
+
+        # Mask cookie for security
+        masked_cookie = mask_cookie(cookie) if cookie else None
+
+        return jsonify({
+            'has_cookie': bool(cookie),
+            'masked_cookie': masked_cookie,
+            'last_validated': last_validated.isoformat() if last_validated else None,
+            'validation_status': config_manager.get_validation_status(),
+            'expiry_detected': config_manager.get_expiry_detected(),
+            'source': 'config.json'
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/cookie/get')
+def api_cookie_get():
+    """Get cookie value (optionally unmasked for editing)"""
+    try:
+        unmask = request.args.get('unmask', 'false').lower() == 'true'
+        cookie = config_manager.get_cookie()
+
+        if unmask:
+            # Return full cookie (for editing)
+            return jsonify({
+                'cookie': cookie,
+                'masked': False
+            })
+        else:
+            # Return masked cookie
+            return jsonify({
+                'cookie': mask_cookie(cookie) if cookie else None,
+                'masked': True
+            })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/cookie/set', methods=['POST'])
+def api_cookie_set():
+    """Set new cookie value"""
+    try:
+        data = request.get_json()
+        new_cookie = data.get('cookie', '').strip()
+
+        if not new_cookie:
+            return jsonify({'error': 'Cookie value required'}), 400
+
+        # Validate format (basic check)
+        if 'uid=' not in new_cookie or 'pass=' not in new_cookie:
+            return jsonify({
+                'error': 'Invalid cookie format. Expected: uid=...; pass=...'
+            }), 400
+
+        # Save cookie
+        config_manager.set_cookie(new_cookie)
+
+        # Hot reload scraper
+        global scraper_instance
+        if scraper_instance:
+            try:
+                scraper_instance.reload_cookie()
+            except Exception as e:
+                print(f"Warning: Could not reload scraper: {e}")
+                # Reset scraper instance to force recreation
+                scraper_instance = None
+
+        return jsonify({
+            'success': True,
+            'message': 'Cookie updated successfully (hot reloaded)'
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/cookie/test', methods=['POST'])
+def api_cookie_test():
+    """Test cookie validity"""
+    try:
+        from cookie_validator import CookieValidator
+
+        data = request.get_json() or {}
+        cookie = data.get('cookie')
+
+        # Use current cookie if not provided
+        if not cookie:
+            cookie = config_manager.get_cookie()
+
+        if not cookie:
+            return jsonify({'error': 'No cookie to test'}), 400
+
+        # Validate cookie
+        validator = CookieValidator()
+        result = validator.test_cookie(cookie)
+
+        # Update config with validation result
+        if result['valid']:
+            config_manager.mark_validated('valid', False)
+        else:
+            status = 'expired' if result.get('expiry_detected') else 'invalid'
+            config_manager.mark_validated(status, result.get('expiry_detected', False))
+
+        return jsonify(result)
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/cookie/browsers')
+def api_cookie_browsers():
+    """Detect available browsers"""
+    try:
+        from browser_cookie_extractor import BrowserCookieExtractor
+
+        extractor = BrowserCookieExtractor()
+        browsers = extractor.detect_browsers()
+
+        return jsonify({
+            'browsers': browsers
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/cookie/extract', methods=['POST'])
+def api_cookie_extract():
+    """Extract cookie from browser"""
+    try:
+        from browser_cookie_extractor import BrowserCookieExtractor
+
+        data = request.get_json()
+        browser = data.get('browser', 'chrome').lower()
+        profile = data.get('profile', 'Default')
+
+        extractor = BrowserCookieExtractor()
+
+        # Extract based on browser type
+        if browser == 'chrome':
+            result = extractor.extract_from_chrome(profile)
+        elif browser == 'edge':
+            result = extractor.extract_from_edge(profile)
+        elif browser == 'firefox':
+            result = extractor.extract_from_firefox(profile)
+        else:
+            return jsonify({'error': f'Unsupported browser: {browser}'}), 400
+
+        return jsonify(result)
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/cookie/reload', methods=['POST'])
+def api_cookie_reload():
+    """Reload cookie in scraper without restart"""
+    try:
+        config_manager.load_config()
+
+        global scraper_instance
+        if scraper_instance:
+            scraper_instance.reload_cookie()
+        else:
+            # Create new scraper instance
+            scraper_instance = get_scraper()
+
+        return jsonify({
+            'success': True,
+            'message': 'Cookie reloaded successfully'
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     print("=" * 60)
     print("IPTorrents Browser")
     print("=" * 60)
+
+    # Check for .env migration on first run
+    if not os.path.exists('config.json'):
+        print("\nFirst run detected - checking for .env migration...")
+        if config_manager.migrate_from_env():
+            print("✓ Migration successful!")
+        else:
+            print("ℹ No .env found - please configure cookie via /cookie-manager\n")
 
     # Load cache on startup
     load_cache()
 
     # Start Flask app
     print("\nStarting web server on http://localhost:5000")
+    print("Cookie Manager: http://localhost:5000/cookie-manager")
     print("Press Ctrl+C to stop\n")
 
     app.run(debug=True, host='0.0.0.0', port=5000)

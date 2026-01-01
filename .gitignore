@@ -29,6 +29,17 @@ ENV/
 # Environment variables
 .env
 
+# Configuration
+config.json
+config.json.backup
+config.json.lock
+config.json.tmp
+.env.backup
+
+# Browser cookie extraction temp files
+*.sqlite-temp
+browser_cookies_temp/
+
 # Flask
 instance/
 .webassets-cache
