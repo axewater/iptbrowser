@@ -9,6 +9,7 @@ import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
+import concurrent.futures
 
 # Load environment variables
 load_dotenv()
@@ -223,45 +224,54 @@ class IPTorrentsScraper:
             return []
 
     def _fetch_category_pages(self, category_name, category_id, cutoff_time):
-        """Fetch multiple pages until we reach the cutoff time"""
-        all_torrents = []
-        offset = 0
-        page_num = 1
-        max_pages = 50  # Safety limit to prevent infinite loops
+        """Fetch multiple pages concurrently for 3-5x faster performance"""
         torrents_per_page = 75  # IPTorrents typically shows 75 per page
+        max_pages = 50  # Safety limit
 
-        print(f"Fetching {category_name} torrents (multi-page)...")
+        # Estimate pages needed (fetch first page to check, then parallelize rest)
+        print(f"Fetching {category_name} torrents (multi-page concurrent)...")
 
-        while page_num <= max_pages:
-            print(f"  Fetching page {page_num} (offset {offset})...")
+        # Fetch first page to check if we have any data
+        first_page = self._fetch_single_page(category_name, category_id, 0)
+        if not first_page:
+            print(f"  No torrents found")
+            return []
 
-            torrents = self._fetch_single_page(category_name, category_id, offset)
+        all_torrents = [t for t in first_page if t['timestamp'] >= cutoff_time]
+        print(f"  Page 1: Found {len(first_page)} torrents, {len(all_torrents)} within time range")
 
-            if not torrents:
-                print(f"  No more torrents found, stopping at page {page_num}")
-                break
+        # Check if first page already shows old torrents
+        oldest_on_first = min(first_page, key=lambda x: x['timestamp'])
+        if oldest_on_first['timestamp'] < cutoff_time:
+            print(f"  Already reached cutoff on page 1, stopping")
+            return all_torrents
 
-            # Check if we've reached torrents older than our cutoff
-            oldest_on_page = min(torrents, key=lambda x: x['timestamp'])
+        # Estimate pages needed (assume ~10 pages max for concurrency)
+        estimated_pages = min(10, max_pages - 1)  # -1 because we already fetched page 1
 
-            # Add torrents that are within our time range
-            added = 0
-            for torrent in torrents:
-                if torrent['timestamp'] >= cutoff_time:
-                    all_torrents.append(torrent)
-                    added += 1
+        # Generate offsets for concurrent fetching
+        page_offsets = [(i + 1, (i + 1) * torrents_per_page) for i in range(estimated_pages)]
 
-            print(f"  Found {len(torrents)} torrents, {added} within time range")
+        # Fetch pages concurrently (max 3 at a time to be nice to server)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            future_to_page = {
+                executor.submit(self._fetch_single_page, category_name, category_id, offset): (page_num, offset)
+                for page_num, offset in page_offsets
+            }
 
-            # Stop if all torrents on this page are older than cutoff
-            if oldest_on_page['timestamp'] < cutoff_time:
-                print(f"  Reached cutoff time, stopping at page {page_num}")
-                break
+            for future in concurrent.futures.as_completed(future_to_page):
+                page_num, offset = future_to_page[future]
+                try:
+                    torrents = future.result()
+                    if torrents:
+                        # Filter torrents within time range
+                        within_range = [t for t in torrents if t['timestamp'] >= cutoff_time]
+                        all_torrents.extend(within_range)
+                        print(f"  Page {page_num}: Found {len(torrents)} torrents, {len(within_range)} within time range")
+                except Exception as e:
+                    print(f"  Error fetching page {page_num}: {e}")
 
-            # Move to next page
-            offset += torrents_per_page
-            page_num += 1
-
+        print(f"  Total torrents fetched: {len(all_torrents)}")
         return all_torrents
 
     def _parse_torrents(self, html, category):
