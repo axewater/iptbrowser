@@ -799,6 +799,44 @@ def api_cookie_reload():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/user/info')
+def api_user_info():
+    """Get current user info from cookie validation"""
+    try:
+        from cookie_validator import CookieValidator
+
+        cookie = config_manager.get_cookie()
+
+        if not cookie:
+            return jsonify({
+                'logged_in': False,
+                'user_info': None
+            })
+
+        # Validate cookie and extract user info
+        validator = CookieValidator()
+        result = validator.test_cookie(cookie)
+
+        if result.get('valid') and result.get('user_info'):
+            return jsonify({
+                'logged_in': True,
+                'user_info': result['user_info']
+            })
+        else:
+            return jsonify({
+                'logged_in': False,
+                'user_info': None,
+                'message': result.get('message', 'Cookie validation failed')
+            })
+
+    except Exception as e:
+        return jsonify({
+            'logged_in': False,
+            'user_info': None,
+            'error': str(e)
+        }), 500
+
+
 if __name__ == '__main__':
     print("=" * 60)
     print("IPTorrents Browser")

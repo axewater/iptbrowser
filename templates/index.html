@@ -12,15 +12,30 @@
         <header class="header">
             <h1>IPTorrents Browser</h1>
             <p class="subtitle">Better filtering for PC Games</p>
-            <div class="stats">
-                <span id="cache-status">Loading...</span>
-                <a href="/cookie-manager" class="btn btn-icon" title="Cookie Manager">
-                    <span class="icon-cookie">🍪</span>
-                </a>
-                <button id="settings-btn" class="btn btn-icon" title="Settings">
-                    <span class="icon-cog">⚙️</span>
-                </button>
-                <button id="refresh-btn" class="btn btn-refresh">Refresh Data</button>
+            <div class="header-info">
+                <div id="user-info" class="user-info" style="display: none;">
+                    <span class="user-label">User:</span>
+                    <span id="user-name" class="user-name">-</span>
+                    <span class="user-divider">|</span>
+                    <span class="user-label">Ratio:</span>
+                    <span id="user-ratio" class="user-ratio">-</span>
+                    <span class="user-divider">|</span>
+                    <span class="user-label">Up:</span>
+                    <span id="user-upload" class="user-upload">-</span>
+                    <span class="user-divider">|</span>
+                    <span class="user-label">Down:</span>
+                    <span id="user-download" class="user-download">-</span>
+                </div>
+                <div class="stats">
+                    <span id="cache-status">Loading...</span>
+                    <a href="/cookie-manager" class="btn btn-icon" title="Cookie Manager">
+                        <span class="icon-cookie">🍪</span>
+                    </a>
+                    <button id="settings-btn" class="btn btn-icon" title="Settings">
+                        <span class="icon-cog">⚙️</span>
+                    </button>
+                    <button id="refresh-btn" class="btn btn-refresh">Refresh Data</button>
+                </div>
             </div>
         </header>
 

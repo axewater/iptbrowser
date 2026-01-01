@@ -61,10 +61,13 @@ async function initializeApp() {
     // 1. Load cached data immediately (instant page load)
     await loadCachedData();
 
-    // 2. Apply filters and display
+    // 2. Load user info
+    await loadUserInfo();
+
+    // 3. Apply filters and display
     applyFiltersAndSort();
 
-    // 3. Check if cache is old, offer to refresh
+    // 4. Check if cache is old, offer to refresh
     if (shouldAutoRefresh()) {
         showRefreshPrompt();
     }
@@ -97,6 +100,61 @@ async function loadCachedData() {
     } finally {
         showLoading(false);
     }
+}
+
+async function loadUserInfo() {
+    try {
+        const response = await fetch('/api/user/info');
+
+        if (!response.ok) {
+            console.error('Failed to fetch user info');
+            return;
+        }
+
+        const data = await response.json();
+
+        if (data.logged_in && data.user_info) {
+            updateUserInfoDisplay(data.user_info);
+        } else {
+            hideUserInfoDisplay();
+        }
+
+    } catch (error) {
+        console.error('Error loading user info:', error);
+        hideUserInfoDisplay();
+    }
+}
+
+function updateUserInfoDisplay(userInfo) {
+    const userInfoEl = document.getElementById('user-info');
+    const userNameEl = document.getElementById('user-name');
+    const userRatioEl = document.getElementById('user-ratio');
+    const userUploadEl = document.getElementById('user-upload');
+    const userDownloadEl = document.getElementById('user-download');
+
+    if (userInfo.username) {
+        userNameEl.textContent = userInfo.username;
+    }
+
+    if (userInfo.ratio) {
+        userRatioEl.textContent = userInfo.ratio;
+    }
+
+    if (userInfo.upload) {
+        userUploadEl.textContent = userInfo.upload;
+    }
+
+    if (userInfo.download) {
+        userDownloadEl.textContent = userInfo.download;
+    }
+
+    // Show the user info section
+    userInfoEl.style.display = 'flex';
+}
+
+function hideUserInfoDisplay() {
+    const userInfoEl = document.getElementById('user-info');
+    userInfoEl.style.display = 'none';
 }
 
 function shouldAutoRefresh() {
