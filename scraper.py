@@ -48,18 +48,25 @@ class IPTorrentsScraper:
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
 
-    def fetch_torrents(self, categories=['PC-ISO', 'PC-Rip'], limit=None):
+    def fetch_torrents(self, categories=['PC-ISO', 'PC-Rip'], limit=None, days=None):
         """
-        Fetch torrents from specified categories
+        Fetch torrents from specified categories with multi-page support
 
         Args:
             categories: List of category names (default: PC-ISO and PC-Rip)
             limit: Maximum number of torrents to fetch (None = all)
+            days: Number of days back to fetch (None = all available, enables multi-page)
 
         Returns:
             List of torrent dictionaries
         """
         all_torrents = []
+        cutoff_time = None
+
+        # Calculate cutoff time if days is specified
+        if days:
+            cutoff_time = datetime.now() - timedelta(days=days)
+            print(f"Fetching torrents from last {days} days (since {cutoff_time.strftime('%Y-%m-%d %H:%M')})")
 
         for category_name in categories:
             if category_name not in CATEGORIES:
@@ -67,27 +74,174 @@ class IPTorrentsScraper:
                 continue
 
             category_id = CATEGORIES[category_name]
-            url = f"{BASE_URL}/t?{category_id}"
 
-            print(f"Fetching {category_name} torrents from {url}...")
+            # Fetch multiple pages if days is specified, otherwise just first page
+            if days:
+                torrents = self._fetch_category_pages(category_name, category_id, cutoff_time)
+            else:
+                torrents = self._fetch_single_page(category_name, category_id, offset=0)
 
-            try:
-                response = requests.get(url, cookies=self.cookies, headers=self.headers, timeout=30)
-                response.raise_for_status()
-
-                torrents = self._parse_torrents(response.text, category_name)
-                all_torrents.extend(torrents)
-
-                print(f"  Found {len(torrents)} torrents in {category_name}")
-
-            except requests.RequestException as e:
-                print(f"  Error fetching {category_name}: {e}")
+            all_torrents.extend(torrents)
+            print(f"  Total: {len(torrents)} torrents in {category_name}")
 
         # Sort by date (newest first) and apply limit
         all_torrents.sort(key=lambda x: x['timestamp'], reverse=True)
 
         if limit:
             all_torrents = all_torrents[:limit]
+
+        return all_torrents
+
+    def fetch_incremental(self, categories, newest_timestamps):
+        """
+        Fetch only new torrents since the last known timestamp for each category
+        This is the "only fetch new things" optimization
+
+        Args:
+            categories: List of category names to check for updates
+            newest_timestamps: Dict mapping category name -> datetime of newest cached torrent
+
+        Returns:
+            List of NEW torrent dictionaries only
+        """
+        all_new_torrents = []
+
+        print(f"Fetching incremental updates for {len(categories)} categories...")
+
+        for category_name in categories:
+            if category_name not in CATEGORIES:
+                print(f"Warning: Unknown category '{category_name}', skipping")
+                continue
+
+            category_id = CATEGORIES[category_name]
+            cutoff_timestamp = newest_timestamps.get(category_name)
+
+            if not cutoff_timestamp:
+                # No cached data for this category, fetch first page only
+                print(f"  {category_name}: No cached data, fetching first page")
+                torrents = self._fetch_single_page(category_name, category_id, offset=0)
+                all_new_torrents.extend(torrents)
+                print(f"    Found {len(torrents)} torrents")
+                continue
+
+            # Fetch pages until we hit the cutoff timestamp
+            print(f"  {category_name}: Checking for new torrents since {cutoff_timestamp.strftime('%Y-%m-%d %H:%M')}")
+            torrents = self._fetch_until_timestamp(category_name, category_id, cutoff_timestamp)
+
+            all_new_torrents.extend(torrents)
+            if torrents:
+                print(f"    Found {len(torrents)} new torrents")
+            else:
+                print(f"    No new torrents")
+
+        # Sort by date (newest first)
+        all_new_torrents.sort(key=lambda x: x['timestamp'], reverse=True)
+
+        print(f"Total new torrents: {len(all_new_torrents)}")
+        return all_new_torrents
+
+    def _fetch_until_timestamp(self, category_name, category_id, cutoff_timestamp):
+        """
+        Fetch pages until we encounter the cutoff timestamp
+        This stops fetching as soon as we hit already-cached torrents
+
+        Args:
+            category_name: Name of the category
+            category_id: ID of the category
+            cutoff_timestamp: datetime - stop when we hit torrents older than this
+
+        Returns:
+            List of new torrent dictionaries
+        """
+        new_torrents = []
+        offset = 0
+        page_num = 1
+        max_pages = 5  # Limit to first 5 pages for incremental (new torrents should be recent)
+        torrents_per_page = 75
+
+        while page_num <= max_pages:
+            torrents = self._fetch_single_page(category_name, category_id, offset)
+
+            if not torrents:
+                break
+
+            # Check each torrent
+            hit_cutoff = False
+            for torrent in torrents:
+                if torrent['timestamp'] > cutoff_timestamp:
+                    # This is new! Add it
+                    new_torrents.append(torrent)
+                else:
+                    # We've hit old data, stop fetching this category
+                    hit_cutoff = True
+                    break
+
+            if hit_cutoff:
+                break
+
+            # Move to next page
+            offset += torrents_per_page
+            page_num += 1
+
+        return new_torrents
+
+    def _fetch_single_page(self, category_name, category_id, offset=0):
+        """Fetch a single page of torrents"""
+        if offset > 0:
+            url = f"{BASE_URL}/t?{category_id};o={offset}"
+        else:
+            url = f"{BASE_URL}/t?{category_id}"
+
+        try:
+            response = requests.get(url, cookies=self.cookies, headers=self.headers, timeout=30)
+            response.raise_for_status()
+
+            torrents = self._parse_torrents(response.text, category_name)
+            return torrents
+
+        except requests.RequestException as e:
+            print(f"  Error fetching {category_name} (offset {offset}): {e}")
+            return []
+
+    def _fetch_category_pages(self, category_name, category_id, cutoff_time):
+        """Fetch multiple pages until we reach the cutoff time"""
+        all_torrents = []
+        offset = 0
+        page_num = 1
+        max_pages = 50  # Safety limit to prevent infinite loops
+        torrents_per_page = 75  # IPTorrents typically shows 75 per page
+
+        print(f"Fetching {category_name} torrents (multi-page)...")
+
+        while page_num <= max_pages:
+            print(f"  Fetching page {page_num} (offset {offset})...")
+
+            torrents = self._fetch_single_page(category_name, category_id, offset)
+
+            if not torrents:
+                print(f"  No more torrents found, stopping at page {page_num}")
+                break
+
+            # Check if we've reached torrents older than our cutoff
+            oldest_on_page = min(torrents, key=lambda x: x['timestamp'])
+
+            # Add torrents that are within our time range
+            added = 0
+            for torrent in torrents:
+                if torrent['timestamp'] >= cutoff_time:
+                    all_torrents.append(torrent)
+                    added += 1
+
+            print(f"  Found {len(torrents)} torrents, {added} within time range")
+
+            # Stop if all torrents on this page are older than cutoff
+            if oldest_on_page['timestamp'] < cutoff_time:
+                print(f"  Reached cutoff time, stopping at page {page_num}")
+                break
+
+            # Move to next page
+            offset += torrents_per_page
+            page_num += 1
 
         return all_torrents
 

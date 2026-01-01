@@ -14,6 +14,9 @@
             <p class="subtitle">Better filtering for PC Games</p>
             <div class="stats">
                 <span id="cache-status">Loading...</span>
+                <button id="settings-btn" class="btn btn-icon" title="Settings">
+                    <span class="icon-cog">⚙️</span>
+                </button>
                 <button id="refresh-btn" class="btn btn-refresh">Refresh Data</button>
             </div>
         </header>
@@ -119,6 +122,117 @@
                     <p>Try adjusting your filters or refreshing the data.</p>
                 </div>
             </main>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal" style="display: none;">
+        <div class="modal-overlay"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Settings</h2>
+                <button class="modal-close" id="close-settings">&times;</button>
+            </div>
+
+            <div class="modal-body">
+                <!-- Data Fetching Section -->
+                <section class="settings-section">
+                    <h3>Data Fetching</h3>
+
+                    <div class="setting-item">
+                        <label for="setting-time-window">Time Window</label>
+                        <select id="setting-time-window" class="input-field">
+                            <option value="7">7 days</option>
+                            <option value="14">14 days</option>
+                            <option value="30" selected>30 days</option>
+                            <option value="60">60 days</option>
+                        </select>
+                        <small class="setting-info" id="time-window-info">~300 torrents, ~10-15s load</small>
+                    </div>
+
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" id="setting-auto-refresh" checked>
+                            Auto-refresh when cache is old
+                        </label>
+                        <div class="setting-sub" id="auto-refresh-threshold-container">
+                            <label for="setting-auto-refresh-threshold">Threshold</label>
+                            <select id="setting-auto-refresh-threshold" class="input-field">
+                                <option value="5">5 minutes</option>
+                                <option value="10" selected>10 minutes</option>
+                                <option value="15">15 minutes</option>
+                            </select>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Display Section -->
+                <section class="settings-section">
+                    <h3>Display</h3>
+
+                    <div class="setting-item">
+                        <label for="setting-default-sort">Default Sort</label>
+                        <select id="setting-default-sort" class="input-field">
+                            <option value="snatched" selected>Snatched</option>
+                            <option value="date">Date</option>
+                            <option value="seeders">Seeders</option>
+                            <option value="size">Size</option>
+                            <option value="name">Name</option>
+                        </select>
+                    </div>
+
+                    <div class="setting-item">
+                        <label>Sort Order</label>
+                        <div class="radio-group">
+                            <label>
+                                <input type="radio" name="sort-order" value="desc" checked>
+                                Descending
+                            </label>
+                            <label>
+                                <input type="radio" name="sort-order" value="asc">
+                                Ascending
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="setting-item">
+                        <label>Default Categories</label>
+                        <div class="checkbox-group">
+                            <label><input type="checkbox" class="default-category" value="PC-ISO" checked> PC-ISO</label>
+                            <label><input type="checkbox" class="default-category" value="PC-Rip" checked> PC-Rip</label>
+                            <label><input type="checkbox" class="default-category" value="PC-Mixed"> PC-Mixed</label>
+                            <label><input type="checkbox" class="default-category" value="Nintendo"> Nintendo</label>
+                            <label><input type="checkbox" class="default-category" value="Playstation"> Playstation</label>
+                            <label><input type="checkbox" class="default-category" value="Xbox"> Xbox</label>
+                            <label><input type="checkbox" class="default-category" value="Wii"> Wii</label>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Notifications Section -->
+                <section class="settings-section">
+                    <h3>Notifications</h3>
+
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" id="setting-show-toasts" checked>
+                            Show toast notifications for new torrents
+                        </label>
+                    </div>
+
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" id="setting-show-refresh-prompt" checked>
+                            Show refresh prompt when cache is old
+                        </label>
+                    </div>
+                </section>
+            </div>
+
+            <div class="modal-footer">
+                <button id="save-settings" class="btn btn-primary">Save Settings</button>
+                <button id="cancel-settings" class="btn btn-secondary">Cancel</button>
+            </div>
         </div>
     </div>
 
