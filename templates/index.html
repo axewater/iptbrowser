@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IPTorrents Browser - PC Games</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1>IPTorrents Browser</h1>
+            <p class="subtitle">Better filtering for PC Games</p>
+            <div class="stats">
+                <span id="cache-status">Loading...</span>
+                <button id="refresh-btn" class="btn btn-refresh">Refresh Data</button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Filters Sidebar -->
+            <aside class="filters">
+                <h2>Filters</h2>
+
+                <!-- Categories -->
+                <div class="filter-group">
+                    <h3>Categories</h3>
+                    <label class="checkbox-label">
+                        <input type="checkbox" name="category" value="PC-ISO" checked>
+                        PC-ISO
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" name="category" value="PC-Rip" checked>
+                        PC-Rip
+                    </label>
+                </div>
+
+                <!-- Date Range -->
+                <div class="filter-group">
+                    <h3>Time Period</h3>
+                    <select id="days-filter" class="input-field">
+                        <option value="">All time</option>
+                        <option value="1">Last 24 hours</option>
+                        <option value="3">Last 3 days</option>
+                        <option value="7" selected>Last 7 days</option>
+                        <option value="14">Last 14 days</option>
+                        <option value="30">Last 30 days</option>
+                        <option value="60">Last 60 days</option>
+                    </select>
+                </div>
+
+                <!-- Min Snatched -->
+                <div class="filter-group">
+                    <h3>Minimum Snatched</h3>
+                    <input type="number" id="min-snatched" class="input-field" placeholder="0" min="0" value="0">
+                    <small>Only show torrents with at least this many downloads</small>
+                </div>
+
+                <!-- Exclude Keywords -->
+                <div class="filter-group">
+                    <h3>Exclude Keywords</h3>
+                    <input type="text" id="exclude-filter" class="input-field" placeholder="update, patch, dlc">
+                    <small>Comma-separated keywords to exclude</small>
+                </div>
+
+                <!-- Search -->
+                <div class="filter-group">
+                    <h3>Search</h3>
+                    <input type="text" id="search-filter" class="input-field" placeholder="Search torrent names...">
+                </div>
+
+                <!-- Apply Filters Button -->
+                <button id="apply-filters" class="btn btn-primary">Apply Filters</button>
+                <button id="clear-filters" class="btn btn-secondary">Clear All</button>
+            </aside>
+
+            <!-- Results Table -->
+            <main class="results">
+                <div class="results-header">
+                    <h2>Results</h2>
+                    <div class="results-info">
+                        <span id="results-count">Loading...</span>
+                    </div>
+                </div>
+
+                <div id="loading" class="loading">
+                    <div class="spinner"></div>
+                    <p>Loading torrents...</p>
+                </div>
+
+                <div id="error" class="error" style="display: none;">
+                    <p>Error loading torrents. Please try refreshing.</p>
+                </div>
+
+                <div class="table-container">
+                    <table id="torrents-table" class="torrents-table">
+                        <thead>
+                            <tr>
+                                <th class="sortable" data-sort="name">Name <span class="sort-icon"></span></th>
+                                <th class="sortable" data-sort="category">Category <span class="sort-icon"></span></th>
+                                <th class="sortable" data-sort="size">Size <span class="sort-icon"></span></th>
+                                <th class="sortable" data-sort="seeders">S <span class="sort-icon"></span></th>
+                                <th class="sortable" data-sort="date">Leechers <span class="sort-icon"></span></th>
+                                <th class="sortable active desc" data-sort="snatched">Snatched <span class="sort-icon">▼</span></th>
+                                <th class="sortable" data-sort="date">Date <span class="sort-icon"></span></th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="torrents-body">
+                            <!-- Torrents will be inserted here by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <div id="no-results" class="no-results" style="display: none;">
+                    <p>No torrents found matching your filters.</p>
+                    <p>Try adjusting your filters or refreshing the data.</p>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
