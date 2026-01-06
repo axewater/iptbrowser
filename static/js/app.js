@@ -447,8 +447,16 @@ function setupEventListeners() {
     document.getElementById('apply-filters').addEventListener('click', onFilterChange);
     document.getElementById('clear-filters').addEventListener('click', clearFilters);
 
-    // Refresh button
+    // Category quick select buttons
+    document.getElementById('select-games-btn').addEventListener('click', selectAllGames);
+    document.getElementById('select-movies-btn').addEventListener('click', selectAllMovies);
+
+    // Exclude "update" button
+    document.getElementById('exclude-update-btn').addEventListener('click', addUpdateToExclude);
+
+    // Refresh buttons (top and bottom)
     document.getElementById('refresh-btn').addEventListener('click', () => refreshData(false));
+    document.getElementById('refresh-btn-bottom').addEventListener('click', () => refreshData(false));
 
     // Search with debounce
     document.getElementById('search-filter').addEventListener('input', onSearchInput);
@@ -554,6 +562,63 @@ function clearFilters() {
 
     // Re-apply filters (will show all data)
     applyFiltersAndSort();
+}
+
+function selectAllGames() {
+    // List of all game categories
+    const gameCategories = ['PC-ISO', 'PC-Rip', 'PC-Mixed', 'Nintendo', 'Playstation', 'Xbox', 'Wii'];
+
+    // Uncheck all categories first
+    document.querySelectorAll('input[name="category"]').forEach(cb => {
+        cb.checked = false;
+    });
+
+    // Check only game categories
+    document.querySelectorAll('input[name="category"]').forEach(cb => {
+        if (gameCategories.includes(cb.value)) {
+            cb.checked = true;
+        }
+    });
+
+    // Trigger category change
+    onCategoryChange();
+}
+
+function selectAllMovies() {
+    // List of all movie categories
+    const movieCategories = ['Movie/4K', 'Movie/BD-Rip', 'Movie/HD/Bluray', 'Movie/Web-DL', 'Movie/x265'];
+
+    // Uncheck all categories first
+    document.querySelectorAll('input[name="category"]').forEach(cb => {
+        cb.checked = false;
+    });
+
+    // Check only movie categories
+    document.querySelectorAll('input[name="category"]').forEach(cb => {
+        if (movieCategories.includes(cb.value)) {
+            cb.checked = true;
+        }
+    });
+
+    // Trigger category change
+    onCategoryChange();
+}
+
+function addUpdateToExclude() {
+    const excludeField = document.getElementById('exclude-filter');
+    const currentValue = excludeField.value.trim();
+
+    // Check if "update" is already in the exclude list
+    const excludeList = currentValue ? currentValue.split(',').map(s => s.trim().toLowerCase()) : [];
+
+    if (!excludeList.includes('update')) {
+        // Add "update" to the list
+        const newValue = currentValue ? currentValue + ', update' : 'update';
+        excludeField.value = newValue;
+
+        // Trigger the filter change
+        onFilterChange();
+    }
 }
 
 function updateFiltersFromUI() {

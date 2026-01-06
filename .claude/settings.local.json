@@ -11,7 +11,8 @@
       "Bash(python test_parse2.py:*)",
       "Bash(python test_parse3.py:*)",
       "Bash(python test_parse4.py:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "WebFetch(domain:api-docs.igdb.com)"
     ]
   }
 }

@@ -17,7 +17,7 @@ load_dotenv()
 # Base URL
 BASE_URL = "http://www.iptorrents.com"
 
-# PC Games category IDs (from analysis)
+# Category IDs (from IPTorrents URL analysis)
 CATEGORIES = {
     'PC-ISO': '43',
     'PC-Rip': '45',
@@ -25,7 +25,12 @@ CATEGORIES = {
     'Nintendo': '47',
     'Playstation': '71',
     'Xbox': '44',
-    'Wii': '50'
+    'Wii': '50',
+    'Movie/4K': '101',
+    'Movie/BD-Rip': '90',
+    'Movie/HD/Bluray': '48',
+    'Movie/Web-DL': '20',
+    'Movie/x265': '100'
 }
 
 

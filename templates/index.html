@@ -51,6 +51,10 @@
                 <!-- Categories -->
                 <div class="filter-group">
                     <h3>Categories</h3>
+                    <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+                        <button id="select-games-btn" class="btn btn-secondary" style="flex: 1; padding: 6px 12px; font-size: 13px;">Games</button>
+                        <button id="select-movies-btn" class="btn btn-secondary" style="flex: 1; padding: 6px 12px; font-size: 13px;">Movies</button>
+                    </div>
                     <label class="checkbox-label">
                         <input type="checkbox" name="category" value="PC-ISO" checked>
                         PC-ISO
@@ -58,6 +62,26 @@
                     <label class="checkbox-label">
                         <input type="checkbox" name="category" value="PC-Rip" checked>
                         PC-Rip
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" name="category" value="Movie/4K">
+                        Movie/4K
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" name="category" value="Movie/BD-Rip">
+                        Movie/BD-Rip
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" name="category" value="Movie/HD/Bluray">
+                        Movie/HD/Bluray
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" name="category" value="Movie/Web-DL">
+                        Movie/Web-DL
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" name="category" value="Movie/x265">
+                        Movie/x265
                     </label>
                 </div>
 
@@ -86,6 +110,7 @@
                 <div class="filter-group">
                     <h3>Exclude Keywords</h3>
                     <input type="text" id="exclude-filter" class="input-field" placeholder="update, patch, dlc">
+                    <button id="exclude-update-btn" class="btn btn-secondary" style="width: 100%; margin-top: 8px; padding: 6px 12px; font-size: 13px;">+ Update</button>
                     <small>Comma-separated keywords to exclude</small>
                 </div>
 
@@ -98,6 +123,7 @@
                 <!-- Apply Filters Button -->
                 <button id="apply-filters" class="btn btn-primary">Apply Filters</button>
                 <button id="clear-filters" class="btn btn-secondary">Clear All</button>
+                <button id="refresh-btn-bottom" class="btn btn-refresh">Refresh Data</button>
             </aside>
 
             <!-- Results Table -->
@@ -226,6 +252,11 @@
                             <label><input type="checkbox" class="default-category" value="Playstation"> Playstation</label>
                             <label><input type="checkbox" class="default-category" value="Xbox"> Xbox</label>
                             <label><input type="checkbox" class="default-category" value="Wii"> Wii</label>
+                            <label><input type="checkbox" class="default-category" value="Movie/4K"> Movie/4K</label>
+                            <label><input type="checkbox" class="default-category" value="Movie/BD-Rip"> Movie/BD-Rip</label>
+                            <label><input type="checkbox" class="default-category" value="Movie/HD/Bluray"> Movie/HD/Bluray</label>
+                            <label><input type="checkbox" class="default-category" value="Movie/Web-DL"> Movie/Web-DL</label>
+                            <label><input type="checkbox" class="default-category" value="Movie/x265"> Movie/x265</label>
                         </div>
                     </div>
                 </section>
