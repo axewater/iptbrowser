@@ -73,58 +73,60 @@
                 </div>
             </section>
 
-            <!-- Extract from Browser Card -->
+            <!-- Manual Cookie Extraction -->
             <section class="card">
-                <h2>Extract from Browser</h2>
-                <div class="extract-section">
-                    <p>Automatically extract your IPTorrents cookie from a local browser.</p>
-
-                    <div class="form-group">
-                        <label for="browser-select">Browser:</label>
-                        <select id="browser-select" class="input-field">
-                            <option value="">-- Detecting browsers... --</option>
-                        </select>
-                    </div>
-
-                    <button id="extract-cookie-btn" class="btn btn-primary" disabled>
-                        <span class="btn-text">Extract Cookie</span>
-                        <span class="btn-loading" style="display: none;">Extracting...</span>
-                    </button>
-
-                    <div id="extract-result" class="extract-result" style="display: none;">
-                        <!-- Extraction results populated by JavaScript -->
-                    </div>
-
-                    <div class="info-box">
-                        <h4>How it works:</h4>
-                        <ul>
-                            <li><strong>Chrome/Edge:</strong> Reads encrypted cookies from browser database using Windows DPAPI</li>
-                            <li><strong>Firefox:</strong> Reads cookies directly from browser database</li>
-                            <li>Close your browser for best results (to avoid database locks)</li>
-                            <li>Only reads cookies for iptorrents.com domain</li>
-                            <li>Requires you to be logged into IPTorrents in the selected browser</li>
-                        </ul>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Manual Cookie Instructions -->
-            <section class="card">
-                <h2>Manual Cookie Extraction</h2>
+                <h2>How to Get Your Cookie</h2>
                 <div class="manual-instructions">
-                    <p>If automatic extraction doesn't work, you can manually copy your cookie:</p>
-                    <ol>
-                        <li>Open your browser and navigate to <a href="https://iptorrents.com" target="_blank" rel="noopener">iptorrents.com</a></li>
-                        <li>Press <kbd>F12</kbd> to open Developer Tools</li>
-                        <li>Go to <strong>Application</strong> tab (Chrome) or <strong>Storage</strong> tab (Firefox)</li>
-                        <li>Navigate to <strong>Cookies</strong> → <strong>https://iptorrents.com</strong> or <strong>http://www.iptorrents.com</strong></li>
-                        <li>Find the <code>uid</code> and <code>pass</code> cookies</li>
-                        <li>Copy their values and format as: <code>uid=VALUE; pass=VALUE</code></li>
-                        <li>Paste into the Cookie Value field above and click Save Changes</li>
+                    <div class="info-box" style="margin-bottom: 1.5rem; background-color: #fff3cd; border-color: #ffc107;">
+                        <strong>Note:</strong> Modern browsers use app-bound encryption that prevents automatic cookie extraction by external tools. You'll need to manually copy your cookie from your browser.
+                    </div>
+
+                    <h3>Step-by-Step Instructions:</h3>
+                    <ol style="line-height: 2;">
+                        <li>
+                            <strong>Open IPTorrents in your browser:</strong><br>
+                            Navigate to <a href="https://iptorrents.com" target="_blank" rel="noopener">iptorrents.com</a> and make sure you're logged in
+                        </li>
+                        <li>
+                            <strong>Open Developer Tools:</strong><br>
+                            Press <kbd>F12</kbd> or right-click anywhere and select "Inspect"
+                        </li>
+                        <li>
+                            <strong>Navigate to Cookies:</strong><br>
+                            • <strong>Chrome/Edge:</strong> Click the <strong>Application</strong> tab → <strong>Cookies</strong> → select the IPTorrents domain<br>
+                            • <strong>Firefox:</strong> Click the <strong>Storage</strong> tab → <strong>Cookies</strong> → select the IPTorrents domain
+                        </li>
+                        <li>
+                            <strong>Find the required cookies:</strong><br>
+                            Look for two cookies named <code>uid</code> and <code>pass</code> in the cookie list
+                        </li>
+                        <li>
+                            <strong>Copy the values:</strong><br>
+                            Click on each cookie and copy its <strong>Value</strong> field
+                        </li>
+                        <li>
+                            <strong>Format the cookie string:</strong><br>
+                            Combine them in this format: <code>uid=YOUR_UID_VALUE; pass=YOUR_PASS_VALUE</code>
+                        </li>
+                        <li>
+                            <strong>Save to IPT Browser:</strong><br>
+                            Paste the formatted cookie into the "Cookie Value" field above, then click "Edit Cookie" and "Save Changes"
+                        </li>
                     </ol>
-                    <div class="example-box">
-                        <strong>Example format:</strong><br>
-                        <code>uid=451419; pass=ee512bb151e63b20e8debc35efdf7493</code>
+
+                    <div class="example-box" style="margin-top: 1.5rem;">
+                        <strong>Example cookie format:</strong><br>
+                        <code style="font-size: 14px;">uid=451419; pass=ee512bb151e63b20e8debc35efdf7493</code>
+                    </div>
+
+                    <div class="info-box" style="margin-top: 1.5rem;">
+                        <h4>Troubleshooting:</h4>
+                        <ul>
+                            <li>Make sure you're logged into IPTorrents before checking for cookies</li>
+                            <li>The domain might be listed as <strong>.iptorrents.com</strong> or <strong>www.iptorrents.com</strong></li>
+                            <li>If you don't see the cookies, try refreshing the page while DevTools is open</li>
+                            <li>Cookie values are case-sensitive, make sure to copy them exactly</li>
+                        </ul>
                     </div>
                 </div>
             </section>

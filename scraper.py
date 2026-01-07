@@ -324,6 +324,14 @@ class IPTorrentsScraper:
         torrent_id_match = re.search(r'/t/(\d+)', title_link['href'])
         torrent_id = torrent_id_match.group(1) if torrent_id_match else None
 
+        # Extract IMDB ID from search links (pattern: /t?qf=all;q=tt12345678)
+        imdb_id = None
+        imdb_link = row.find('a', href=lambda x: x and '/t?qf=all;q=tt' in x)
+        if imdb_link:
+            imdb_match = re.search(r'q=(tt\d+)', imdb_link['href'])
+            if imdb_match:
+                imdb_id = imdb_match.group(1)
+
         # Find download link
         download_link_elem = row.find('a', href=lambda x: x and '/download.php/' in x)
         download_link = BASE_URL + download_link_elem['href'] if download_link_elem else None
@@ -400,6 +408,68 @@ class IPTorrentsScraper:
         # Check for freeleech (usually indicated by special icon or text)
         is_freeleech = bool(row.find(string=re.compile(r'freeleech', re.I)))
 
+        # Parse metadata from <div class="sub"> element
+        # Format: "7.5 1996 Adventure Drama Western 2160p | 8.0 minutes ago by Lama"
+        metadata = {
+            'rating': None,
+            'year': None,
+            'genres': [],
+            'quality': None,
+            'uploader': None
+        }
+
+        sub_div = row.find('div', class_='sub')
+        if sub_div:
+            sub_text = sub_div.get_text(strip=True)
+
+            # Split by pipe separator to separate metadata from uploader info
+            parts = sub_text.split('|')
+
+            if parts:
+                # Left side: rating, year, genres, quality
+                left_side = parts[0].strip()
+                tokens = left_side.split()
+
+                parsed_tokens = []
+                for token in tokens:
+                    # Try to parse rating (decimal number, typically 0-10)
+                    if metadata['rating'] is None and re.match(r'^\d+\.\d+$', token):
+                        try:
+                            rating = float(token)
+                            if 0 <= rating <= 10:
+                                metadata['rating'] = rating
+                                continue
+                        except ValueError:
+                            pass
+
+                    # Try to parse year (4-digit number)
+                    if metadata['year'] is None and re.match(r'^\d{4}$', token):
+                        try:
+                            year = int(token)
+                            if 1900 <= year <= 2100:
+                                metadata['year'] = year
+                                continue
+                        except ValueError:
+                            pass
+
+                    # Try to parse quality (ends with 'p' like 2160p, 1080p, 720p)
+                    if metadata['quality'] is None and re.match(r'^\d+p$', token, re.IGNORECASE):
+                        metadata['quality'] = token
+                        continue
+
+                    # Everything else is likely a genre
+                    parsed_tokens.append(token)
+
+                # Remaining tokens are genres
+                metadata['genres'] = parsed_tokens
+
+            # Right side: uploader info (extract from "by Username")
+            if len(parts) > 1:
+                right_side = parts[1].strip()
+                uploader_match = re.search(r'by\s+(\S+)', right_side)
+                if uploader_match:
+                    metadata['uploader'] = uploader_match.group(1)
+
         return {
             'id': torrent_id,
             'name': name,
@@ -412,7 +482,9 @@ class IPTorrentsScraper:
             'timestamp': timestamp,
             'download_link': download_link,
             'is_freeleech': is_freeleech,
-            'url': f"{BASE_URL}/t/{torrent_id}" if torrent_id else None
+            'url': f"{BASE_URL}/t/{torrent_id}" if torrent_id else None,
+            'imdb_id': imdb_id,
+            'metadata': metadata
         }
 
 

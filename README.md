@@ -7,7 +7,7 @@ A modern web interface for browsing and managing IPTorrents.com content with adv
 - **Enhanced Browsing**: Clean, responsive interface for browsing IPTorrents listings
 - **Advanced Filtering**: Filter by category, time period, snatched count, and keywords
 - **Smart Caching**: 15-minute cache with incremental updates for faster browsing
-- **Cookie Management**: Extract and manage IPTorrents cookies directly from your browsers
+- **Cookie Management**: Easy-to-follow guide for setting up IPTorrents authentication
 - **qBittorrent Integration**: Add torrents directly to your qBittorrent client with one click
 - **Multi-Page Fetching**: Automatically fetches multiple pages based on time periods
 - **Real-Time Stats**: Monitor cache status, user info, and download statistics
@@ -46,19 +46,15 @@ A modern web interface for browsing and managing IPTorrents.com content with adv
 
 ## Cookie Management
 
-The built-in Cookie Manager can extract cookies directly from your browsers:
+The built-in Cookie Manager helps you set up your IPTorrents authentication:
 
 1. Navigate to http://localhost:5000/cookie-manager
-2. Select your browser (Chrome, Firefox, Edge, or Brave)
-3. Click "Extract Cookie" - no manual copying needed!
-4. Test the cookie to verify it works
-5. Cookies auto-reload when changed
+2. Follow the step-by-step instructions to copy your cookie from your browser
+3. Paste the cookie into the Cookie Value field
+4. Click "Save Changes"
+5. Test the cookie to verify it works
 
-**Supported Browsers:**
-- Chrome / Chromium
-- Firefox
-- Edge
-- Brave
+**Note:** Modern browsers use app-bound encryption that prevents automatic cookie extraction. You'll need to manually copy cookies from your browser's Developer Tools (F12).
 
 ## qBittorrent Setup
 

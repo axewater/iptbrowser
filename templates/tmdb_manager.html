@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TMDB Settings - IPTorrents Browser</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/cookie_manager.css') }}">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-top">
+                <a href="/" class="btn btn-back">← Back to Browser</a>
+                <div class="header-title">
+                    <h1>🎬 Movie Metadata Settings</h1>
+                    <p class="subtitle">Configure TMDB (The Movie Database) integration</p>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <div class="cookie-manager-content">
+
+            <!-- TMDB Status Card -->
+            <section class="card">
+                <h2>Current Status</h2>
+                <div id="tmdb-status" class="status-container">
+                    <div class="loading">Loading status...</div>
+                </div>
+            </section>
+
+            <!-- Configuration Card -->
+            <section class="card">
+                <h2>Configuration</h2>
+                <div class="config-section">
+                    <div class="form-group">
+                        <label class="checkbox-label" style="font-size: 1rem; margin-bottom: 1rem;">
+                            <input type="checkbox" id="tmdb-enabled" style="width: 20px; height: 20px;">
+                            <span style="margin-left: 10px;">Enable movie metadata from TMDB</span>
+                        </label>
+                        <p class="setting-info" style="margin-left: 30px; color: var(--text-secondary);">
+                            Shows movie posters, plot summaries, cast information, and ratings for movie torrents
+                        </p>
+                    </div>
+
+                    <div class="form-group" style="margin-top: 2rem;">
+                        <label for="tmdb-api-key">TMDB API Key:</label>
+                        <div style="display: flex; gap: 10px; align-items: flex-start;">
+                            <input
+                                type="password"
+                                id="tmdb-api-key"
+                                class="input-field"
+                                placeholder="Enter your TMDB API key"
+                                style="flex: 1;"
+                            >
+                            <button id="toggle-key-visibility" class="btn btn-icon" title="Show/Hide API Key">
+                                <span class="icon">👁️</span>
+                            </button>
+                        </div>
+                        <small class="setting-info">Your API key is stored locally in your browser and never sent to our servers</small>
+                    </div>
+
+                    <div class="button-group" style="margin-top: 2rem;">
+                        <button id="save-tmdb-btn" class="btn btn-primary">Save Settings</button>
+                        <button id="test-tmdb-btn" class="btn btn-secondary">Test API Key</button>
+                        <button id="clear-cache-btn" class="btn btn-secondary">Clear Cache</button>
+                    </div>
+
+                    <div id="tmdb-message" class="test-result" style="display: none; margin-top: 1rem;">
+                        <!-- Messages populated by JavaScript -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- Cache Info Card -->
+            <section class="card">
+                <h2>Cache Information</h2>
+                <div class="cache-info-section">
+                    <p>Movie data is cached in your browser for 7 days to minimize API calls.</p>
+                    <div id="cache-stats" style="margin-top: 1rem; padding: 1rem; background-color: var(--bg-tertiary); border-radius: 8px;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                            <div>
+                                <strong>Cached Movies:</strong>
+                                <div id="cache-entries" style="font-size: 1.5rem; color: var(--accent-primary);">-</div>
+                            </div>
+                            <div>
+                                <strong>Cache Size:</strong>
+                                <div id="cache-size" style="font-size: 1.5rem; color: var(--accent-primary);">-</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- How to Get API Key -->
+            <section class="card">
+                <h2>How to Get Your TMDB API Key</h2>
+                <div class="manual-instructions">
+                    <div class="info-box" style="margin-bottom: 1.5rem; background-color: #d4edda; border-color: #28a745; color: #155724;">
+                        <strong>Good News:</strong> TMDB API keys are completely free for non-commercial use!
+                    </div>
+
+                    <h3>Step-by-Step Instructions:</h3>
+                    <ol style="line-height: 2;">
+                        <li>
+                            <strong>Create a TMDB account:</strong><br>
+                            Go to <a href="https://www.themoviedb.org/signup" target="_blank" rel="noopener" style="color: var(--accent-primary);">themoviedb.org/signup</a> and create a free account
+                        </li>
+                        <li>
+                            <strong>Verify your email:</strong><br>
+                            Check your inbox and click the verification link
+                        </li>
+                        <li>
+                            <strong>Request an API key:</strong><br>
+                            Navigate to <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener" style="color: var(--accent-primary);">themoviedb.org/settings/api</a><br>
+                            Click <strong>"Request an API Key"</strong> and select <strong>"Developer"</strong>
+                        </li>
+                        <li>
+                            <strong>Fill out the form:</strong><br>
+                            • <strong>Application Name:</strong> IPT Browser (or any name)<br>
+                            • <strong>Application URL:</strong> http://localhost:5000 (or leave blank)<br>
+                            • <strong>Application Summary:</strong> Personal movie torrent browser<br>
+                            Accept the terms and submit
+                        </li>
+                        <li>
+                            <strong>Copy your API key:</strong><br>
+                            Copy the <strong>"API Key (v3 auth)"</strong> value (32 characters long)
+                        </li>
+                        <li>
+                            <strong>Paste it above:</strong><br>
+                            Paste your API key in the "TMDB API Key" field, check "Enable", and click "Save Settings"
+                        </li>
+                    </ol>
+
+                    <div class="info-box" style="margin-top: 2rem; background-color: #d1ecf1; border-color: #0c5460; color: #0c5460;">
+                        <strong>Rate Limits:</strong> TMDB allows 40 requests per 10 seconds, which is plenty for normal browsing. Our caching system ensures you rarely hit these limits.
+                    </div>
+                </div>
+            </section>
+
+            <!-- What Gets Displayed -->
+            <section class="card">
+                <h2>What You'll See</h2>
+                <div class="features-section">
+                    <p style="margin-bottom: 1.5rem;">Once enabled, movie torrents will display:</p>
+
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem;">
+                        <div class="feature-item" style="padding: 1rem; background-color: var(--bg-tertiary); border-radius: 8px;">
+                            <div style="font-size: 2rem; margin-bottom: 0.5rem;">⭐</div>
+                            <strong>Inline Metadata</strong>
+                            <p style="color: var(--text-secondary); margin-top: 0.5rem;">Rating, year, genres, quality displayed directly in the table</p>
+                        </div>
+
+                        <div class="feature-item" style="padding: 1rem; background-color: var(--bg-tertiary); border-radius: 8px;">
+                            <div style="font-size: 2rem; margin-bottom: 0.5rem;">🖼️</div>
+                            <strong>Movie Posters</strong>
+                            <p style="color: var(--text-secondary); margin-top: 0.5rem;">High-quality poster images with shadows</p>
+                        </div>
+
+                        <div class="feature-item" style="padding: 1rem; background-color: var(--bg-tertiary); border-radius: 8px;">
+                            <div style="font-size: 2rem; margin-bottom: 0.5rem;">📖</div>
+                            <strong>Plot Summaries</strong>
+                            <p style="color: var(--text-secondary); margin-top: 0.5rem;">Full plot descriptions and movie details</p>
+                        </div>
+
+                        <div class="feature-item" style="padding: 1rem; background-color: var(--bg-tertiary); border-radius: 8px;">
+                            <div style="font-size: 2rem; margin-bottom: 0.5rem;">👥</div>
+                            <strong>Cast & Crew</strong>
+                            <p style="color: var(--text-secondary); margin-top: 0.5rem;">Top 5 cast members with photos, director info</p>
+                        </div>
+                    </div>
+
+                    <div class="info-box" style="margin-top: 2rem; background-color: #fff3cd; border-color: #ffc107; color: #856404;">
+                        <strong>Note:</strong> Metadata only appears for torrents in movie categories (Movie/4K, Movie/BD-Rip, Movie/HD/Bluray, Movie/Web-DL, Movie/x265). Game torrents are not affected.
+                    </div>
+                </div>
+            </section>
+
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/tmdb_client.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/tmdb_manager.js') }}"></script>
+</body>
+</html>

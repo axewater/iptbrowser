@@ -35,7 +35,13 @@ const AppState = {
 
     // qBittorrent integration state
     qbittorrentEnabled: false,
-    qbittorrentConfig: null
+    qbittorrentConfig: null,
+
+    // TMDB integration state
+    tmdbEnabled: false,
+    tmdbApiKey: null,
+    tmdbClient: null,
+    expandedRows: new Set()
 };
 
 // Search debounce timer
@@ -71,10 +77,13 @@ async function initializeApp() {
     // 3. Load qBittorrent settings
     await loadQbittorrentSettings();
 
-    // 4. Apply filters and display
+    // 4. Load TMDB settings
+    loadTMDBSettings();
+
+    // 5. Apply filters and display
     applyFiltersAndSort();
 
-    // 5. Check if cache is old, offer to refresh
+    // 6. Check if cache is old, offer to refresh
     if (shouldAutoRefresh()) {
         showRefreshPrompt();
     }
@@ -691,6 +700,55 @@ function createTorrentRow(torrent) {
 
     tr.appendChild(nameCell);
 
+    // Metadata (only for movie categories)
+    const metadataCell = document.createElement('td');
+    metadataCell.className = 'metadata-cell';
+
+    if (torrent.metadata && isMovieCategory(torrent.category)) {
+        const meta = torrent.metadata;
+        const metaContent = [];
+
+        // Rating
+        if (meta.rating) {
+            metaContent.push(`<span class="meta-rating">★ ${meta.rating}</span>`);
+        }
+
+        // Year
+        if (meta.year) {
+            metaContent.push(`<span class="meta-year">${meta.year}</span>`);
+        }
+
+        // Genres
+        if (meta.genres && meta.genres.length > 0) {
+            const genreStr = meta.genres.slice(0, 3).join(', ');
+            metaContent.push(`<span class="meta-genres">${genreStr}</span>`);
+        }
+
+        // Quality
+        if (meta.quality) {
+            metaContent.push(`<span class="meta-quality">${meta.quality}</span>`);
+        }
+
+        metadataCell.innerHTML = metaContent.join(' ');
+
+        // Add expand button if TMDB is enabled and we have year (for search)
+        if (AppState.tmdbEnabled && meta.year) {
+            const expandBtn = document.createElement('button');
+            expandBtn.className = 'btn-expand-meta';
+            expandBtn.textContent = AppState.expandedRows.has(torrent.id) ? '▲ Less' : '▼ More';
+            expandBtn.onclick = (e) => {
+                e.preventDefault();
+                toggleMetadataRow(torrent, tr);
+            };
+            metadataCell.appendChild(document.createElement('br'));
+            metadataCell.appendChild(expandBtn);
+        }
+    } else {
+        metadataCell.textContent = '-';
+    }
+
+    tr.appendChild(metadataCell);
+
     // Category
     const categoryCell = document.createElement('td');
     categoryCell.innerHTML = `<span class="badge badge-category">${torrent.category}</span>`;
@@ -1236,6 +1294,203 @@ async function sendToQbittorrent(torrentUrl, torrentName, buttonEl) {
         buttonEl.disabled = false;
     }
 }
+
+// ===================================================================
+// TMDB METADATA INTEGRATION
+// ===================================================================
+
+function isMovieCategory(category) {
+    const movieCategories = ['Movie/4K', 'Movie/BD-Rip', 'Movie/HD/Bluray', 'Movie/Web-DL', 'Movie/x265'];
+    return movieCategories.includes(category);
+}
+
+async function toggleMetadataRow(torrent, torrentRow) {
+    const metadataRowId = `metadata-row-${torrent.id}`;
+    const existingMetadataRow = document.getElementById(metadataRowId);
+
+    // Check if already expanded
+    if (existingMetadataRow) {
+        // Collapse: remove the expanded row
+        existingMetadataRow.remove();
+        AppState.expandedRows.delete(torrent.id);
+
+        // Update button text
+        const btn = torrentRow.querySelector('.btn-expand-meta');
+        if (btn) {
+            btn.textContent = '▼ More';
+        }
+        return;
+    }
+
+    // Expand: insert new row with loading spinner
+    AppState.expandedRows.add(torrent.id);
+
+    const metadataRow = document.createElement('tr');
+    metadataRow.id = metadataRowId;
+    metadataRow.className = 'metadata-row';
+
+    const metadataCell = document.createElement('td');
+    metadataCell.colSpan = 9; // Adjust based on total number of columns
+    metadataCell.className = 'metadata-container';
+    metadataCell.innerHTML = '<div class="loading-spinner">Loading movie data...</div>';
+
+    metadataRow.appendChild(metadataCell);
+    torrentRow.parentNode.insertBefore(metadataRow, torrentRow.nextSibling);
+
+    // Update button text
+    const btn = torrentRow.querySelector('.btn-expand-meta');
+    if (btn) {
+        btn.textContent = '▲ Less';
+    }
+
+    // Fetch TMDB data
+    try {
+        if (!AppState.tmdbClient) {
+            throw new Error('TMDB client not initialized');
+        }
+
+        let movieData;
+
+        // Try IMDB ID first if available
+        if (torrent.imdb_id) {
+            console.log(`Fetching via IMDB ID: ${torrent.imdb_id}`);
+            movieData = await AppState.tmdbClient.findByIMDBId(torrent.imdb_id);
+        } else if (torrent.metadata && torrent.metadata.year) {
+            // Fallback: search by title and year
+            // Extract clean title from torrent name (remove year, quality, release group, etc.)
+            const cleanTitle = extractMovieTitle(torrent.name);
+            console.log(`Original: "${torrent.name}"`);
+            console.log(`Extracted: "${cleanTitle}" (${torrent.metadata.year})`);
+            movieData = await AppState.tmdbClient.findByTitleAndYear(cleanTitle, torrent.metadata.year);
+        } else {
+            throw new Error('No IMDB ID or year available for this torrent');
+        }
+
+        metadataCell.innerHTML = renderMetadataContent(movieData);
+    } catch (error) {
+        console.error('Error fetching TMDB data:', error);
+        metadataCell.innerHTML = `
+            <div class="metadata-error">
+                <p>Could not load movie data: ${error.message}</p>
+                <p>Please check your TMDB API key in settings.</p>
+            </div>
+        `;
+    }
+}
+
+function extractMovieTitle(torrentName) {
+    // Remove common patterns: year, quality, codec, release group
+    let title = torrentName;
+
+    // Replace dots and underscores with spaces first
+    title = title.replace(/[._]/g, ' ');
+
+    // Remove year (e.g., "2023", "(2023)", "[2023]")
+    title = title.replace(/[\[\(]?\b\d{4}\b[\]\)]?/g, '');
+
+    // Remove region/language tags
+    title = title.replace(/\b(NORDiC|GERMAN|FRENCH|SPANISH|ITALIAN|JAPANESE|KOREAN|CHINESE|MULTi|DUAL|SUBBED)\b/gi, '');
+
+    // Remove quality indicators (be more aggressive, remove everything after first match)
+    const qualityPattern = /\b(2160p|1080p|720p|480p|4K|UHD|HD|BluRay|BDRip|BD-Rip|WEB-DL|WEBRip|DVDRip|HDTV|Remux|Blu-ray|HDR|HDR10|DoVi|DV|SDR)\b.*/i;
+    title = title.replace(qualityPattern, '');
+
+    // Remove audio/video codecs and formats
+    title = title.replace(/\b(x264|x265|H264|H265|HEVC|AVC|AAC|DTS|TrueHD|Atmos|DD5|DDP|AC3|FLAC|MP3|DTS-HD)\b.*/gi, '');
+
+    // Additional cleanup for common release patterns
+    title = title.replace(/\b(Extended|Edition|Remastered|Director'?s?|Cut|PROPER|REPACK|iNTERNAL|UNRATED|Theatrical)\b/gi, '');
+
+    // Remove anything in brackets or parentheses
+    title = title.replace(/[\[\(][^\]\)]*[\]\)]/g, '');
+
+    // Remove release group patterns at the end (dash followed by alphanumeric)
+    title = title.replace(/-[A-Z0-9]+$/i, '');
+
+    // Remove extra whitespace and trim
+    title = title.replace(/\s+/g, ' ').trim();
+
+    return title;
+}
+
+function renderMetadataContent(movieData) {
+    const posterUrl = movieData.poster_url || '/static/img/no-poster.png';
+
+    let castHtml = '';
+    if (movieData.cast && movieData.cast.length > 0) {
+        castHtml = movieData.cast.map(actor => `
+            <div class="cast-member">
+                ${actor.profile_path ?
+                    `<img src="${actor.profile_path}" alt="${actor.name}" class="cast-photo">` :
+                    '<div class="cast-photo-placeholder">?</div>'
+                }
+                <div class="cast-info">
+                    <div class="cast-name">${actor.name}</div>
+                    <div class="cast-character">${actor.character}</div>
+                </div>
+            </div>
+        `).join('');
+    } else {
+        castHtml = '<p>No cast information available.</p>';
+    }
+
+    return `
+        <div class="metadata-grid">
+            <div class="meta-poster-section">
+                <img src="${posterUrl}" alt="${movieData.title}" class="meta-poster" onerror="this.src='/static/img/no-poster.png'">
+            </div>
+            <div class="meta-info-section">
+                <h3 class="meta-title">${movieData.title}</h3>
+                ${movieData.trailer_url ?
+                    `<a href="${movieData.trailer_url}" target="_blank" class="btn-trailer" title="Watch trailer on YouTube">
+                        <span class="trailer-icon">▶️</span> Watch Trailer
+                    </a>` :
+                    ''}
+                ${movieData.release_date ? `<p class="meta-release-date">Released: ${movieData.release_date}</p>` : ''}
+                ${movieData.runtime ? `<p class="meta-runtime">Runtime: ${movieData.runtime} minutes</p>` : ''}
+                ${movieData.vote_average ? `<p class="meta-vote"><span class="meta-rating">★ ${movieData.vote_average.toFixed(1)}</span>/10</p>` : ''}
+                ${movieData.director ? `<p class="meta-director"><strong>Director:</strong> ${movieData.director}</p>` : ''}
+                ${movieData.genres && movieData.genres.length > 0 ?
+                    `<p class="meta-genres-list"><strong>Genres:</strong> ${movieData.genres.join(', ')}</p>` :
+                    ''}
+                <div class="meta-plot">
+                    <strong>Plot:</strong>
+                    <p>${movieData.plot}</p>
+                </div>
+            </div>
+            <div class="meta-cast-section">
+                <h4>Cast</h4>
+                <div class="cast-list">
+                    ${castHtml}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function loadTMDBSettings() {
+    const savedApiKey = localStorage.getItem('tmdb_api_key');
+    const savedEnabled = localStorage.getItem('tmdb_enabled') === 'true';
+
+    console.log('Loading TMDB settings:', { hasApiKey: !!savedApiKey, enabled: savedEnabled });
+
+    if (savedApiKey && savedEnabled) {
+        AppState.tmdbApiKey = savedApiKey;
+        AppState.tmdbEnabled = true;
+
+        // Check if TMDBClient is available
+        if (typeof TMDBClient !== 'undefined') {
+            AppState.tmdbClient = new TMDBClient(savedApiKey);
+            console.log('TMDB integration enabled with client');
+        } else {
+            console.error('TMDBClient not found! Make sure tmdb_client.js is loaded.');
+        }
+    } else {
+        console.log('TMDB not enabled:', savedEnabled ? 'No API key' : 'Disabled in settings');
+    }
+}
+
+// Note: saveTMDBSettings() is now in tmdb_manager.js (dedicated settings page)
 
 // ===================================================================
 // KEYBOARD SHORTCUTS (Future enhancement)

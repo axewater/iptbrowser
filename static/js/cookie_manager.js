@@ -11,7 +11,6 @@ let isEditing = false;
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {
     loadCookieStatus();
-    detectBrowsers();
     setupEventListeners();
 });
 
@@ -29,12 +28,6 @@ function setupEventListeners() {
 
     // Test cookie button
     document.getElementById('test-cookie-btn').addEventListener('click', testCookie);
-
-    // Extract cookie button
-    document.getElementById('extract-cookie-btn').addEventListener('click', extractCookie);
-
-    // Browser select change
-    document.getElementById('browser-select').addEventListener('change', onBrowserChange);
 }
 
 /**
@@ -333,149 +326,9 @@ function displayTestResult(result) {
     resultDiv.className = `test-result ${statusClass}`;
 }
 
-/**
- * Detect available browsers
- */
-async function detectBrowsers() {
-    const select = document.getElementById('browser-select');
-    const extractBtn = document.getElementById('extract-cookie-btn');
-
-    try {
-        const response = await fetch('/api/cookie/browsers');
-        const data = await response.json();
-
-        if (data.error) {
-            select.innerHTML = '<option value="">No browsers detected</option>';
-            return;
-        }
-
-        const browsers = data.browsers || [];
-
-        if (browsers.length === 0) {
-            select.innerHTML = '<option value="">No browsers detected</option>';
-            showToast('No browsers with IPTorrents cookies detected', 'warning');
-            return;
-        }
-
-        // Populate dropdown
-        select.innerHTML = '<option value="">-- Select a browser --</option>';
-        browsers.forEach(browser => {
-            const option = document.createElement('option');
-            option.value = browser.id;
-            option.textContent = browser.name;
-            option.dataset.profile = browser.profile || 'Default';
-            select.appendChild(option);
-        });
-
-        extractBtn.disabled = true;
-
-    } catch (error) {
-        select.innerHTML = '<option value="">Error detecting browsers</option>';
-        showToast(`Error: ${error.message}`, 'error');
-    }
-}
-
-/**
- * Handle browser selection change
- */
-function onBrowserChange() {
-    const select = document.getElementById('browser-select');
-    const extractBtn = document.getElementById('extract-cookie-btn');
-
-    extractBtn.disabled = !select.value;
-}
-
-/**
- * Extract cookie from selected browser
- */
-async function extractCookie() {
-    const select = document.getElementById('browser-select');
-    const selectedOption = select.options[select.selectedIndex];
-    const browser = select.value;
-    const profile = selectedOption.dataset.profile || 'Default';
-
-    if (!browser) {
-        showToast('Please select a browser', 'warning');
-        return;
-    }
-
-    const button = document.getElementById('extract-cookie-btn');
-    const resultDiv = document.getElementById('extract-result');
-    const btnText = button.querySelector('.btn-text');
-    const btnLoading = button.querySelector('.btn-loading');
-
-    // Show loading state
-    button.disabled = true;
-    btnText.style.display = 'none';
-    btnLoading.style.display = 'inline';
-
-    try {
-        const response = await fetch('/api/cookie/extract', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ browser, profile })
-        });
-
-        const data = await response.json();
-
-        // Display result
-        displayExtractResult(data);
-
-        // If successful, offer to save
-        if (data.success && data.cookie) {
-            // Auto-fill textarea
-            document.getElementById('cookie-value').value = data.cookie;
-            currentCookie = data.cookie;
-            isMasked = false;
-
-            // Enable edit mode
-            enableEdit();
-        }
-
-    } catch (error) {
-        showToast(`Error extracting cookie: ${error.message}`, 'error');
-    } finally {
-        // Reset button state
-        button.disabled = false;
-        btnText.style.display = 'inline';
-        btnLoading.style.display = 'none';
-    }
-}
-
-/**
- * Display extraction result
- */
-function displayExtractResult(result) {
-    const resultDiv = document.getElementById('extract-result');
-
-    const statusClass = result.success ? 'success' : 'error';
-    const statusIcon = result.success ? '✓' : '✗';
-
-    let html = `
-        <div class="result-header ${statusClass}">
-            <span class="result-icon">${statusIcon}</span>
-            <span class="result-message">
-                ${result.success
-                    ? `Cookie extracted successfully from ${result.browser}`
-                    : 'Extraction failed'}
-            </span>
-        </div>
-    `;
-
-    if (!result.success && result.error) {
-        html += `<div class="error-detail">${result.error}</div>`;
-    }
-
-    if (result.success) {
-        html += '<div class="success-detail">Cookie has been loaded into the editor above. Click "Save Changes" to apply it.</div>';
-    }
-
-    resultDiv.innerHTML = html;
-    resultDiv.style.display = 'block';
-    resultDiv.className = `extract-result ${statusClass}`;
-}
+// Browser detection and extraction functions removed
+// Modern browsers use app-bound encryption that prevents automatic cookie extraction
+// Users must manually copy cookies from browser DevTools
 
 /**
  * Show error message

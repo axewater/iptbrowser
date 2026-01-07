@@ -34,6 +34,9 @@
                     <a href="/qbittorrent-manager" class="btn btn-icon" title="qBittorrent Settings">
                         <span class="icon-qbt">⬇️</span>
                     </a>
+                    <a href="/tmdb-manager" class="btn btn-icon" title="Movie Metadata Settings">
+                        <span class="icon-tmdb">🎬</span>
+                    </a>
                     <button id="settings-btn" class="btn btn-icon" title="Settings">
                         <span class="icon-cog">⚙️</span>
                     </button>
@@ -149,6 +152,7 @@
                         <thead>
                             <tr>
                                 <th class="sortable" data-sort="name">Name <span class="sort-icon"></span></th>
+                                <th>Metadata</th>
                                 <th class="sortable" data-sort="category">Category <span class="sort-icon"></span></th>
                                 <th class="sortable" data-sort="size">Size <span class="sort-icon"></span></th>
                                 <th class="sortable" data-sort="seeders">S <span class="sort-icon"></span></th>
@@ -288,6 +292,7 @@
         </div>
     </div>
 
+    <script src="{{ url_for('static', filename='js/tmdb_client.js') }}"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>

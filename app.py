@@ -657,6 +657,12 @@ def qbittorrent_manager():
     return render_template('qbittorrent_manager.html')
 
 
+@app.route('/tmdb-manager')
+def tmdb_manager():
+    """TMDB (movie metadata) manager page"""
+    return render_template('tmdb_manager.html')
+
+
 @app.route('/api/cookie/status')
 def api_cookie_status():
     """Get current cookie status"""
@@ -807,6 +813,8 @@ def api_cookie_extract():
             result = extractor.extract_from_chrome(profile)
         elif browser == 'edge':
             result = extractor.extract_from_edge(profile)
+        elif browser == 'brave':
+            result = extractor.extract_from_brave(profile)
         elif browser == 'firefox':
             result = extractor.extract_from_firefox(profile)
         else:
