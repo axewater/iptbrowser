@@ -42,6 +42,7 @@ const AppState = {
     tmdbApiKey: null,
     tmdbClient: null,
     metadataLoader: null,  // Progressive loader for movie metadata
+    sessionMetadataCache: {},  // { imdbId: movieData } - In-memory cache for current session
 
     // Pagination state
     pagination: {
@@ -147,6 +148,11 @@ class MovieMetadataLoader {
 
             // Render the content using existing helper
             metadataCell.innerHTML = renderMetadataContent(movieData);
+
+            // Store in session cache for future renders
+            if (torrent.imdb_id && movieData) {
+                AppState.sessionMetadataCache[torrent.imdb_id] = movieData;
+            }
 
         } catch (error) {
             console.error('Error fetching TMDB data:', error);
@@ -992,10 +998,31 @@ function displayTorrents(torrents) {
 
     tbody.appendChild(fragment);  // Single DOM reflow - 3-5x faster!
 
-    // Start progressive loading
+    // Start progressive loading (skip already-cached movies)
     if (AppState.metadataLoader && torrentsNeedingMetadata.length > 0) {
-        console.log(`Starting progressive load for ${torrentsNeedingMetadata.length} movies`);
-        AppState.metadataLoader.enqueue(torrentsNeedingMetadata);
+        // Filter out movies that already have rendered content
+        const torrentsToLoad = torrentsNeedingMetadata.filter(torrent => {
+            if (!torrent.imdb_id) return false;
+
+            // Skip if in session cache (already rendered)
+            if (AppState.sessionMetadataCache[torrent.imdb_id]) {
+                return false;
+            }
+
+            // Skip if in localStorage cache (already rendered)
+            if (AppState.tmdbClient && AppState.tmdbClient.isCached(torrent.imdb_id)) {
+                return false;
+            }
+
+            return true;  // Not cached, needs loading
+        });
+
+        if (torrentsToLoad.length > 0) {
+            console.log(`Starting progressive load for ${torrentsToLoad.length} movies (${torrentsNeedingMetadata.length - torrentsToLoad.length} cached)`);
+            AppState.metadataLoader.enqueue(torrentsToLoad);
+        } else {
+            console.log('All movies cached, no loading needed');
+        }
     }
 }
 
@@ -1233,14 +1260,37 @@ function createExpandedMetadataRow(torrent) {
     metadataRow.className = 'metadata-row';
 
     const metadataCell = document.createElement('td');
-    metadataCell.colSpan = 9; // Match number of table columns
+    metadataCell.colSpan = 9;
     metadataCell.className = 'metadata-container';
-    metadataCell.innerHTML = `
-        <div class="loading-spinner">
-            <div class="spinner-icon">⏳</div>
-            <span>Loading movie data...</span>
-        </div>
-    `;
+
+    // Pre-check cache before showing spinner
+    let cachedData = null;
+
+    // Check session cache first (fastest - in-memory)
+    if (torrent.imdb_id && AppState.sessionMetadataCache[torrent.imdb_id]) {
+        cachedData = AppState.sessionMetadataCache[torrent.imdb_id];
+    }
+    // Check localStorage cache (synchronous)
+    else if (torrent.imdb_id && AppState.tmdbClient) {
+        cachedData = AppState.tmdbClient.isCached(torrent.imdb_id);
+
+        // Store in session cache for future renders
+        if (cachedData) {
+            AppState.sessionMetadataCache[torrent.imdb_id] = cachedData;
+        }
+    }
+
+    // If cached, render immediately; otherwise show spinner
+    if (cachedData) {
+        metadataCell.innerHTML = renderMetadataContent(cachedData);
+    } else {
+        metadataCell.innerHTML = `
+            <div class="loading-spinner">
+                <div class="spinner-icon">⏳</div>
+                <span>Loading movie data...</span>
+            </div>
+        `;
+    }
 
     metadataRow.appendChild(metadataCell);
     return metadataRow;

@@ -79,6 +79,15 @@ class TMDBClient {
     }
 
     /**
+     * Synchronously check if movie is cached (no async/await)
+     * @param {string} imdbId - IMDB ID
+     * @returns {Object|null} Cached data or null
+     */
+    isCached(imdbId) {
+        return this._getFromCache(imdbId);
+    }
+
+    /**
      * Find movie by title and year (fallback when no IMDB ID)
      * @param {string} title - Movie title
      * @param {number} year - Release year

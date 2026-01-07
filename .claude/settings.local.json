@@ -14,7 +14,8 @@
       "Bash(find:*)",
       "WebFetch(domain:api-docs.igdb.com)",
       "Bash(python:*)",
-      "WebFetch(domain:www.iptorrents.com)"
+      "WebFetch(domain:www.iptorrents.com)",
+      "Bash(python3:*)"
     ]
   }
 }
