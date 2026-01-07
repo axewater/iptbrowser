@@ -172,6 +172,11 @@
                     <p>No torrents found matching your filters.</p>
                     <p>Try adjusting your filters or refreshing the data.</p>
                 </div>
+
+                <!-- Pagination Controls -->
+                <div id="pagination-controls" class="pagination-controls" style="display: none;">
+                    <!-- Populated by JavaScript -->
+                </div>
             </main>
         </div>
     </div>
@@ -262,6 +267,30 @@
                             <label><input type="checkbox" class="default-category" value="Movie/Web-DL"> Movie/Web-DL</label>
                             <label><input type="checkbox" class="default-category" value="Movie/x265"> Movie/x265</label>
                         </div>
+                    </div>
+                </section>
+
+                <!-- Pagination Section -->
+                <section class="settings-section">
+                    <h3>Pagination</h3>
+
+                    <div class="setting-item">
+                        <label for="setting-items-per-page">Items Per Page</label>
+                        <select id="setting-items-per-page" class="input-field">
+                            <option value="25">25</option>
+                            <option value="50" selected>50</option>
+                            <option value="100">100</option>
+                            <option value="200">200</option>
+                        </select>
+                        <small class="setting-info">Number of torrents to display per page</small>
+                    </div>
+
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" id="setting-enable-deduplication" checked>
+                            Enable movie grouping
+                        </label>
+                        <small class="setting-info">Group duplicate movies together - shows one row with all versions expandable</small>
                     </div>
                 </section>
 

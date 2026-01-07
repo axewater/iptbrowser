@@ -41,8 +41,137 @@ const AppState = {
     tmdbEnabled: false,
     tmdbApiKey: null,
     tmdbClient: null,
-    expandedRows: new Set()
+    metadataLoader: null,  // Progressive loader for movie metadata
+
+    // Pagination state
+    pagination: {
+        currentPage: 1,
+        itemsPerPage: 50,
+        totalPages: 0,
+        enableDeduplication: true
+    }
 };
+
+// ===================================================================
+// PROGRESSIVE MOVIE METADATA LOADER
+// ===================================================================
+
+/**
+ * Progressive loader for movie metadata
+ * Loads TMDB data for multiple movies with controlled delays to respect rate limits
+ */
+class MovieMetadataLoader {
+    constructor(tmdbClient, delay = 250) {
+        this.tmdbClient = tmdbClient;
+        this.delay = delay;
+        this.queue = [];
+        this.isProcessing = false;
+    }
+
+    /**
+     * Add movies to the loading queue and start processing
+     * @param {Array} torrents - Array of torrent objects (movie category only)
+     */
+    enqueue(torrents) {
+        // Cancel any in-progress loading
+        this.cancel();
+
+        // Build queue from movie torrents only
+        this.queue = torrents
+            .filter(t => isMovieCategory(t.category))
+            .map(torrent => ({ torrent, status: 'pending' }));
+
+        // Start processing
+        this.process();
+    }
+
+    /**
+     * Process the queue sequentially with delays
+     */
+    async process() {
+        if (this.isProcessing) return;
+        this.isProcessing = true;
+
+        while (this.queue.length > 0) {
+            const item = this.queue.shift();
+
+            if (item.status === 'cancelled') continue;
+
+            item.status = 'loading';
+
+            try {
+                await this.loadMovieMetadata(item.torrent);
+                item.status = 'loaded';
+            } catch (error) {
+                console.error(`Failed to load metadata for ${item.torrent.name}:`, error);
+                item.status = 'error';
+            }
+
+            // Rate limiting delay between requests
+            if (this.queue.length > 0) {
+                await new Promise(resolve => setTimeout(resolve, this.delay));
+            }
+        }
+
+        this.isProcessing = false;
+    }
+
+    /**
+     * Load metadata for a single movie and update its DOM row
+     * @param {Object} torrent - Torrent object
+     */
+    async loadMovieMetadata(torrent) {
+        const metadataRow = document.getElementById(`metadata-row-${torrent.id}`);
+        if (!metadataRow) {
+            console.warn(`Metadata row not found for torrent ${torrent.id}`);
+            return;
+        }
+
+        const metadataCell = metadataRow.querySelector('.metadata-container');
+
+        try {
+            let movieData;
+
+            // Try IMDB ID first if available
+            if (torrent.imdb_id) {
+                console.log(`Fetching via IMDB ID: ${torrent.imdb_id}`);
+                movieData = await this.tmdbClient.findByIMDBId(torrent.imdb_id);
+            } else if (torrent.metadata?.year) {
+                // Fallback: search by title and year
+                const cleanTitle = extractMovieTitle(torrent.name);
+                console.log(`Fetching "${cleanTitle}" (${torrent.metadata.year})`);
+                movieData = await this.tmdbClient.findByTitleAndYear(cleanTitle, torrent.metadata.year);
+            } else {
+                throw new Error('No IMDB ID or year available');
+            }
+
+            // Render the content using existing helper
+            metadataCell.innerHTML = renderMetadataContent(movieData);
+
+        } catch (error) {
+            console.error('Error fetching TMDB data:', error);
+            metadataCell.innerHTML = `
+                <div class="metadata-error">
+                    <p>Could not load movie data: ${error.message}</p>
+                    <p class="error-hint">Check TMDB API key in settings or try refreshing.</p>
+                </div>
+            `;
+        }
+    }
+
+    /**
+     * Cancel all pending loads
+     */
+    cancel() {
+        this.queue.forEach(item => {
+            if (item.status === 'pending') {
+                item.status = 'cancelled';
+            }
+        });
+        this.queue = [];
+        this.isProcessing = false;
+    }
+}
 
 // Search debounce timer
 let searchTimeout = null;
@@ -79,6 +208,9 @@ async function initializeApp() {
 
     // 4. Load TMDB settings
     loadTMDBSettings();
+
+    // 4.5. Initialize pagination from URL/session
+    initializePagination();
 
     // 5. Apply filters and display
     applyFiltersAndSort();
@@ -324,9 +456,27 @@ function applyFiltersAndSort() {
     // Sort
     filtered = sortTorrents(filtered);
 
-    // Update state and display
+    // Deduplicate movies
+    filtered = deduplicateMovies(filtered);
+
+    // Update state
     AppState.displayedTorrents = filtered;
-    displayTorrents(filtered);
+
+    // Calculate pagination
+    const totalItems = filtered.length;
+    const itemsPerPage = AppState.pagination.itemsPerPage;
+    AppState.pagination.totalPages = Math.ceil(totalItems / itemsPerPage) || 0;
+
+    // Reset to page 1 if current page is out of bounds
+    if (AppState.pagination.currentPage > AppState.pagination.totalPages) {
+        AppState.pagination.currentPage = Math.max(1, AppState.pagination.totalPages);
+    }
+
+    // Update URL hash
+    updatePageHash();
+
+    // Display current page
+    displayCurrentPage();
     updateResultsCount(filtered.length);
 
     // Save filters to localStorage
@@ -396,6 +546,137 @@ function filterBySearch(torrents) {
 
     const query = search.toLowerCase();
     return torrents.filter(t => t.name.toLowerCase().includes(query));
+}
+
+// ===================================================================
+// MOVIE DEDUPLICATION
+// ===================================================================
+
+/**
+ * Normalize movie title for deduplication
+ * Removes year, quality, codec, release group, language tags, and other noise
+ * @param {string} title - Raw torrent name
+ * @returns {string} Normalized title for comparison
+ */
+function normalizeMovieTitle(title) {
+    let normalized = title.toLowerCase();
+
+    // Remove language tags: [Hindi English], (Multi), etc.
+    normalized = normalized.replace(/[\[\(][^\]\)]*(?:hindi|english|multi|dual|audio|lang|spanish|french|german|italian|japanese|korean|chinese)[^\]\)]*[\]\)]/gi, '');
+
+    // Remove "extended edition", "director's cut", "unrated", etc.
+    normalized = normalized.replace(/\b(extended|unrated|uncut|director'?s?\s*cut|theatrical|remastered|anniversary|edition)\b/gi, '');
+
+    // Remove year patterns: (2023), [2023], 2023
+    normalized = normalized.replace(/[\[\(]?\b(19|20)\d{2}\b[\]\)]?/g, '');
+
+    // Remove quality indicators and everything after first quality marker
+    const qualityPattern = /\b(2160p|1080p|720p|480p|4k|uhd|hd|sdr|hdr|dv|bluray|bdrip|bd-rip|web-dl|webrip|dvdrip|hdtv|remux|proper|repack)\b.*/i;
+    normalized = normalized.replace(qualityPattern, '');
+
+    // Remove common noise words at start
+    normalized = normalized.replace(/^(the|a|an)\s+/i, '');
+
+    // Replace dots/underscores/dashes with spaces
+    normalized = normalized.replace(/[._\-]+/g, ' ');
+
+    // Remove duplicate "the" that sometimes appears (e.g., "The Hobbit The Desolation")
+    normalized = normalized.replace(/\bthe\s+the\b/gi, 'the');
+
+    // Normalize whitespace
+    normalized = normalized.replace(/\s+/g, ' ').trim();
+
+    return normalized;
+}
+
+/**
+ * Extract quality score for comparison (higher is better)
+ * @param {string} quality - Quality string from metadata (e.g., "2160p", "1080p")
+ * @returns {number} Quality score (0-4)
+ */
+function getQualityScore(quality) {
+    if (!quality) return 0;
+
+    const q = quality.toLowerCase();
+    if (q.includes('2160p') || q.includes('4k') || q.includes('uhd')) return 4;
+    if (q.includes('1080p')) return 3;
+    if (q.includes('720p')) return 2;
+    if (q.includes('480p')) return 1;
+
+    return 0;
+}
+
+/**
+ * Group movie torrents by normalized title
+ * Creates grouped objects with all versions accessible
+ * Non-movie torrents (games, PC) are left untouched
+ * @param {Array} torrents - Array of torrent objects
+ * @returns {Array} Array with grouped movies and ungrouped non-movies
+ */
+function deduplicateMovies(torrents) {
+    // Check if deduplication is enabled
+    if (!AppState.pagination.enableDeduplication) {
+        return torrents;
+    }
+
+    // Movie categories to group
+    const movieCategories = ['Movie/4K', 'Movie/BD-Rip', 'Movie/HD/Bluray', 'Movie/Web-DL', 'Movie/x265'];
+
+    // Separate movies from non-movies
+    const movies = torrents.filter(t => movieCategories.includes(t.category));
+    const nonMovies = torrents.filter(t => !movieCategories.includes(t.category));
+
+    // Group movies by normalized title
+    const movieGroups = {};
+
+    movies.forEach(torrent => {
+        const normalizedTitle = normalizeMovieTitle(torrent.name);
+
+        if (!movieGroups[normalizedTitle]) {
+            movieGroups[normalizedTitle] = [];
+        }
+
+        movieGroups[normalizedTitle].push(torrent);
+    });
+
+    // Create grouped movie objects
+    const groupedMovies = Object.values(movieGroups).map(group => {
+        // Sort versions by: snatched count (desc), quality (desc), date (desc)
+        const sortedVersions = group.sort((a, b) => {
+            // 1. Snatched count (higher is better)
+            if (b.snatched !== a.snatched) {
+                return b.snatched - a.snatched;
+            }
+
+            // 2. Quality score (higher is better)
+            const qualityA = a.metadata?.quality || '';
+            const qualityB = b.metadata?.quality || '';
+            const scoreA = getQualityScore(qualityA);
+            const scoreB = getQualityScore(qualityB);
+
+            if (scoreB !== scoreA) {
+                return scoreB - scoreA;
+            }
+
+            // 3. Upload date (newer first)
+            return new Date(b.timestamp) - new Date(a.timestamp);
+        });
+
+        // Use the best version as the "main" torrent
+        const mainTorrent = { ...sortedVersions[0] };
+
+        // If multiple versions exist, mark as grouped and store all versions
+        if (sortedVersions.length > 1) {
+            mainTorrent.isGrouped = true;
+            mainTorrent.versions = sortedVersions;
+            mainTorrent.versionCount = sortedVersions.length;
+        }
+
+        return mainTorrent;
+    });
+
+    // Combine non-movies (untouched) with grouped movies
+    return [...nonMovies, ...groupedMovies];
 }
 
 // ===================================================================
@@ -492,11 +773,22 @@ function setupEventListeners() {
     if (settingsBtn) {
         settingsBtn.addEventListener('click', openSettings);
     }
+
+    // Handle browser back/forward navigation
+    window.addEventListener('hashchange', () => {
+        const newPage = readPageFromHash();
+        if (newPage !== AppState.pagination.currentPage) {
+            goToPage(newPage);
+        }
+    });
 }
 
 function onFilterChange() {
     // Update state from UI
     updateFiltersFromUI();
+
+    // Reset to page 1 when filters change
+    AppState.pagination.currentPage = 1;
 
     // Re-filter and display (instant!)
     applyFiltersAndSort();
@@ -508,6 +800,9 @@ function onCategoryChange() {
         .map(cb => cb.value);
 
     AppState.currentFilters.categories = selectedCategories;
+
+    // Reset to page 1 when categories change
+    AppState.pagination.currentPage = 1;
 
     // Check if we have data for these categories in cache
     // For now, just re-filter
@@ -521,6 +816,10 @@ function onSearchInput() {
 
     searchTimeout = setTimeout(() => {
         AppState.currentFilters.search = document.getElementById('search-filter').value.trim();
+
+        // Reset to page 1 on search
+        AppState.pagination.currentPage = 1;
+
         applyFiltersAndSort();
     }, 300); // 300ms delay
 }
@@ -533,6 +832,9 @@ function onSortChange(field) {
         AppState.currentSort.field = field;
         AppState.currentSort.order = 'desc';
     }
+
+    // Reset to page 1 on sort change
+    AppState.pagination.currentPage = 1;
 
     // Re-sort and display (instant!)
     applyFiltersAndSort();
@@ -658,6 +960,11 @@ function displayTorrents(torrents) {
     const tbody = document.getElementById('torrents-body');
     tbody.innerHTML = '';
 
+    // Cancel any in-progress metadata loading
+    if (AppState.metadataLoader) {
+        AppState.metadataLoader.cancel();
+    }
+
     if (torrents.length === 0) {
         document.getElementById('no-results').style.display = 'block';
         document.querySelector('.table-container').style.display = 'none';
@@ -667,17 +974,285 @@ function displayTorrents(torrents) {
     document.getElementById('no-results').style.display = 'none';
     document.querySelector('.table-container').style.display = 'block';
 
-    // Use DocumentFragment to batch DOM updates (single reflow instead of N reflows)
+    // Build DOM with expanded rows included
     const fragment = document.createDocumentFragment();
+    const torrentsNeedingMetadata = [];
+
     torrents.forEach(torrent => {
         const row = createTorrentRow(torrent);
         fragment.appendChild(row);
+
+        // If movie torrent with TMDB enabled, create expanded row
+        if (row.dataset.autoExpand === 'true') {
+            const metadataRow = createExpandedMetadataRow(torrent);
+            fragment.appendChild(metadataRow);
+            torrentsNeedingMetadata.push(torrent);
+        }
     });
+
     tbody.appendChild(fragment);  // Single DOM reflow - 3-5x faster!
+
+    // Start progressive loading
+    if (AppState.metadataLoader && torrentsNeedingMetadata.length > 0) {
+        console.log(`Starting progressive load for ${torrentsNeedingMetadata.length} movies`);
+        AppState.metadataLoader.enqueue(torrentsNeedingMetadata);
+    }
+}
+
+// ===================================================================
+// PAGINATION DISPLAY
+// ===================================================================
+
+/**
+ * Display only the current page of torrents
+ */
+function displayCurrentPage() {
+    const { currentPage, itemsPerPage } = AppState.pagination;
+    const allTorrents = AppState.displayedTorrents;
+
+    // Calculate slice boundaries
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+
+    // Get torrents for current page
+    const pageTorrents = allTorrents.slice(startIndex, endIndex);
+
+    // Render torrents
+    displayTorrents(pageTorrents);
+
+    // Update pagination controls
+    renderPaginationControls();
+}
+
+/**
+ * Render pagination controls
+ */
+function renderPaginationControls() {
+    const { currentPage, totalPages } = AppState.pagination;
+    const container = document.getElementById('pagination-controls');
+
+    if (!container) return;
+
+    // Hide if only one page
+    if (totalPages <= 1) {
+        container.style.display = 'none';
+        return;
+    }
+
+    container.style.display = 'flex';
+    container.innerHTML = '';
+
+    // Previous button
+    const prevBtn = createPaginationButton('‹ Prev', currentPage - 1, currentPage === 1);
+    container.appendChild(prevBtn);
+
+    // Page numbers with smart ellipsis
+    const pageButtons = generatePageButtons(currentPage, totalPages);
+    pageButtons.forEach(btn => container.appendChild(btn));
+
+    // Next button
+    const nextBtn = createPaginationButton('Next ›', currentPage + 1, currentPage === totalPages);
+    container.appendChild(nextBtn);
+
+    // Page info
+    const pageInfo = document.createElement('div');
+    pageInfo.className = 'pagination-info';
+    pageInfo.textContent = `Page ${currentPage} of ${totalPages}`;
+    container.appendChild(pageInfo);
+}
+
+/**
+ * Generate page number buttons with smart ellipsis
+ * Shows: [1] ... [current-1] [current] [current+1] ... [last]
+ */
+function generatePageButtons(currentPage, totalPages) {
+    const buttons = [];
+    const showEllipsis = totalPages > 7;
+
+    if (!showEllipsis) {
+        // Show all pages if 7 or fewer
+        for (let i = 1; i <= totalPages; i++) {
+            buttons.push(createPaginationButton(i, i, false, i === currentPage));
+        }
+        return buttons;
+    }
+
+    // Always show first page
+    buttons.push(createPaginationButton(1, 1, false, currentPage === 1));
+
+    // Calculate range around current page
+    const rangeStart = Math.max(2, currentPage - 1);
+    const rangeEnd = Math.min(totalPages - 1, currentPage + 1);
+
+    // Left ellipsis
+    if (rangeStart > 2) {
+        buttons.push(createEllipsis());
+    }
+
+    // Middle pages
+    for (let i = rangeStart; i <= rangeEnd; i++) {
+        buttons.push(createPaginationButton(i, i, false, i === currentPage));
+    }
+
+    // Right ellipsis
+    if (rangeEnd < totalPages - 1) {
+        buttons.push(createEllipsis());
+    }
+
+    // Always show last page
+    if (totalPages > 1) {
+        buttons.push(createPaginationButton(totalPages, totalPages, false, currentPage === totalPages));
+    }
+
+    return buttons;
+}
+
+/**
+ * Create a pagination button
+ */
+function createPaginationButton(text, page, disabled, active = false) {
+    const btn = document.createElement('button');
+    btn.className = `pagination-btn ${active ? 'active' : ''}`;
+    btn.textContent = text;
+    btn.disabled = disabled;
+
+    if (!disabled) {
+        btn.onclick = () => goToPage(page);
+    }
+
+    return btn;
+}
+
+/**
+ * Create ellipsis element
+ */
+function createEllipsis() {
+    const ellipsis = document.createElement('span');
+    ellipsis.className = 'pagination-ellipsis';
+    ellipsis.textContent = '...';
+    return ellipsis;
+}
+
+/**
+ * Navigate to specific page
+ */
+function goToPage(page) {
+    const { totalPages } = AppState.pagination;
+
+    // Validate page number
+    if (page < 1 || page > totalPages) {
+        return;
+    }
+
+    AppState.pagination.currentPage = page;
+
+    // Scroll to top of results
+    const resultsSection = document.querySelector('.results');
+    if (resultsSection) {
+        resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    // Update display
+    displayCurrentPage();
+
+    // Update URL hash
+    updatePageHash();
+
+    // Save to session storage
+    sessionStorage.setItem('iptbrowser_current_page', page);
+}
+
+// ===================================================================
+// URL HASH MANAGEMENT
+// ===================================================================
+
+/**
+ * Update URL hash with current page
+ */
+function updatePageHash() {
+    const { currentPage } = AppState.pagination;
+
+    if (currentPage === 1) {
+        // Remove hash for page 1
+        if (window.location.hash) {
+            history.replaceState(null, '', window.location.pathname + window.location.search);
+        }
+    } else {
+        history.replaceState(null, '', `#page=${currentPage}`);
+    }
+}
+
+/**
+ * Read page number from URL hash
+ */
+function readPageFromHash() {
+    const hash = window.location.hash;
+    const match = hash.match(/#page=(\d+)/);
+
+    if (match) {
+        const page = parseInt(match[1]);
+        if (page > 0) {
+            return page;
+        }
+    }
+
+    return 1;
+}
+
+/**
+ * Initialize pagination from URL or session storage
+ */
+function initializePagination() {
+    // Try URL hash first
+    const hashPage = readPageFromHash();
+
+    if (hashPage > 1) {
+        AppState.pagination.currentPage = hashPage;
+        return;
+    }
+
+    // Fallback to session storage
+    const savedPage = sessionStorage.getItem('iptbrowser_current_page');
+
+    if (savedPage) {
+        const page = parseInt(savedPage);
+        if (page > 0) {
+            AppState.pagination.currentPage = page;
+        }
+    }
+}
+
+/**
+ * Create an expanded metadata row with loading spinner
+ * @param {Object} torrent - Torrent object
+ * @returns {HTMLElement} Table row element
+ */
+function createExpandedMetadataRow(torrent) {
+    const metadataRow = document.createElement('tr');
+    metadataRow.id = `metadata-row-${torrent.id}`;
+    metadataRow.className = 'metadata-row';
+
+    const metadataCell = document.createElement('td');
+    metadataCell.colSpan = 9; // Match number of table columns
+    metadataCell.className = 'metadata-container';
+    metadataCell.innerHTML = `
+        <div class="loading-spinner">
+            <div class="spinner-icon">⏳</div>
+            <span>Loading movie data...</span>
+        </div>
+    `;
+
+    metadataRow.appendChild(metadataCell);
+    return metadataRow;
 }
 
 function createTorrentRow(torrent) {
     const tr = document.createElement('tr');
+    tr.id = `torrent-row-${torrent.id}`;
+    if (torrent.isGrouped) {
+        tr.dataset.grouped = 'true';
+        tr.dataset.torrentId = torrent.id;
+    }
 
     // Name
     const nameCell = document.createElement('td');
@@ -698,6 +1273,19 @@ function createTorrentRow(torrent) {
         nameCell.appendChild(freeleechBadge);
     }
 
+    // Add versions button if this is a grouped movie
+    if (torrent.isGrouped) {
+        const versionsBtn = document.createElement('button');
+        versionsBtn.className = 'btn-versions';
+        versionsBtn.textContent = `Show ${torrent.versionCount} versions`;
+        versionsBtn.title = 'Show all versions';
+        versionsBtn.onclick = (e) => {
+            e.preventDefault();
+            toggleVersions(torrent.id);
+        };
+        nameCell.appendChild(versionsBtn);
+    }
+
     tr.appendChild(nameCell);
 
     // Metadata (only for movie categories)
@@ -706,42 +1294,18 @@ function createTorrentRow(torrent) {
 
     if (torrent.metadata && isMovieCategory(torrent.category)) {
         const meta = torrent.metadata;
-        const metaContent = [];
 
-        // Rating
-        if (meta.rating) {
-            metaContent.push(`<span class="meta-rating">★ ${meta.rating}</span>`);
-        }
-
-        // Year
-        if (meta.year) {
-            metaContent.push(`<span class="meta-year">${meta.year}</span>`);
-        }
-
-        // Genres
-        if (meta.genres && meta.genres.length > 0) {
-            const genreStr = meta.genres.slice(0, 3).join(', ');
-            metaContent.push(`<span class="meta-genres">${genreStr}</span>`);
-        }
-
-        // Quality
+        // Only show quality badge in collapsed view (other info is in expanded panel)
         if (meta.quality) {
-            metaContent.push(`<span class="meta-quality">${meta.quality}</span>`);
+            metadataCell.innerHTML = `<span class="meta-quality">${meta.quality}</span>`;
+        } else {
+            metadataCell.textContent = '-';
         }
 
-        metadataCell.innerHTML = metaContent.join(' ');
-
-        // Add expand button if TMDB is enabled and we have year (for search)
+        // Mark this row for auto-expansion if TMDB enabled
         if (AppState.tmdbEnabled && meta.year) {
-            const expandBtn = document.createElement('button');
-            expandBtn.className = 'btn-expand-meta';
-            expandBtn.textContent = AppState.expandedRows.has(torrent.id) ? '▲ Less' : '▼ More';
-            expandBtn.onclick = (e) => {
-                e.preventDefault();
-                toggleMetadataRow(torrent, tr);
-            };
-            metadataCell.appendChild(document.createElement('br'));
-            metadataCell.appendChild(expandBtn);
+            tr.dataset.autoExpand = 'true';
+            tr.dataset.torrentId = torrent.id;
         }
     } else {
         metadataCell.textContent = '-';
@@ -815,6 +1379,135 @@ function createTorrentRow(torrent) {
     return tr;
 }
 
+/**
+ * Toggle display of all versions for a grouped movie
+ */
+function toggleVersions(torrentId) {
+    const versionsRowId = `versions-row-${torrentId}`;
+    let versionsRow = document.getElementById(versionsRowId);
+    const mainRow = document.getElementById(`torrent-row-${torrentId}`);
+    const btn = mainRow ? mainRow.querySelector('.btn-versions') : null;
+    const torrent = findTorrentById(torrentId);
+
+    if (versionsRow) {
+        // Versions row exists, toggle it
+        if (versionsRow.style.display === 'none') {
+            versionsRow.style.display = 'table-row';
+            if (btn) btn.textContent = `Hide ${torrent.versionCount} versions`;
+        } else {
+            versionsRow.style.display = 'none';
+            if (btn) btn.textContent = `Show ${torrent.versionCount} versions`;
+        }
+    } else {
+        // Create versions row
+        if (torrent && torrent.versions) {
+            versionsRow = createVersionsRow(torrent);
+            // Insert after main row
+            if (mainRow && mainRow.nextSibling) {
+                mainRow.parentNode.insertBefore(versionsRow, mainRow.nextSibling);
+            } else if (mainRow) {
+                mainRow.parentNode.appendChild(versionsRow);
+            }
+            if (btn) btn.textContent = `Hide ${torrent.versionCount} versions`;
+        }
+    }
+}
+
+/**
+ * Create a row showing all versions of a grouped movie
+ */
+function createVersionsRow(torrent) {
+    const versionsRow = document.createElement('tr');
+    versionsRow.id = `versions-row-${torrent.id}`;
+    versionsRow.className = 'versions-row';
+
+    const versionsCell = document.createElement('td');
+    versionsCell.colSpan = 9; // Span all columns
+    versionsCell.className = 'versions-cell';
+
+    const versionsContainer = document.createElement('div');
+    versionsContainer.className = 'versions-container';
+
+    const versionsTitle = document.createElement('div');
+    versionsTitle.className = 'versions-title';
+    versionsTitle.textContent = `All Versions (${torrent.versionCount})`;
+    versionsContainer.appendChild(versionsTitle);
+
+    const versionsList = document.createElement('div');
+    versionsList.className = 'versions-list';
+
+    torrent.versions.forEach((version, index) => {
+        const versionItem = document.createElement('div');
+        versionItem.className = 'version-item';
+
+        // Version details
+        const versionInfo = document.createElement('div');
+        versionInfo.className = 'version-info';
+
+        const versionName = document.createElement('div');
+        versionName.className = 'version-name';
+        versionName.textContent = version.name;
+        versionInfo.appendChild(versionName);
+
+        const versionMeta = document.createElement('div');
+        versionMeta.className = 'version-meta';
+        versionMeta.innerHTML = `
+            <span class="badge badge-category">${version.category}</span>
+            <span>${version.size}</span>
+            <span class="badge badge-seeders">${version.seeders}S</span>
+            <span class="badge badge-leechers">${version.leechers}L</span>
+            <span class="badge badge-snatched">${version.snatched} snatched</span>
+            <span>${version.upload_time}</span>
+        `;
+        versionInfo.appendChild(versionMeta);
+
+        versionItem.appendChild(versionInfo);
+
+        // Version actions
+        const versionActions = document.createElement('div');
+        versionActions.className = 'version-actions';
+
+        if (version.download_link) {
+            // qBittorrent button
+            if (AppState.qbittorrentEnabled) {
+                const qbtBtn = document.createElement('button');
+                qbtBtn.className = 'btn btn-qbittorrent btn-sm';
+                qbtBtn.textContent = 'Send';
+                qbtBtn.title = 'Send to qBittorrent';
+                qbtBtn.onclick = (e) => {
+                    e.preventDefault();
+                    sendToQbittorrent(version.download_link, version.name, qbtBtn);
+                };
+                versionActions.appendChild(qbtBtn);
+            }
+
+            // Download button
+            const downloadBtn = document.createElement('a');
+            downloadBtn.href = version.download_link;
+            downloadBtn.className = 'btn btn-download btn-sm';
+            downloadBtn.textContent = 'Download';
+            downloadBtn.title = 'Download .torrent file';
+            versionActions.appendChild(downloadBtn);
+        }
+
+        versionItem.appendChild(versionActions);
+        versionsList.appendChild(versionItem);
+    });
+
+    versionsContainer.appendChild(versionsList);
+    versionsCell.appendChild(versionsContainer);
+    versionsRow.appendChild(versionsCell);
+
+    return versionsRow;
+}
+
+/**
+ * Find torrent by ID in displayed torrents
+ */
+function findTorrentById(torrentId) {
+    return AppState.displayedTorrents.find(t => t.id === torrentId);
+}
+
 function updateSortIndicators() {
     document.querySelectorAll('.sortable').forEach(header => {
         header.classList.remove('active', 'asc', 'desc');
@@ -834,10 +1527,18 @@ function updateSortIndicators() {
     }
 }
 
-function updateResultsCount(count) {
+function updateResultsCount(totalCount) {
     const countEl = document.getElementById('results-count');
     if (countEl) {
-        countEl.textContent = `Showing ${count} torrent${count !== 1 ? 's' : ''}`;
+        const { currentPage, itemsPerPage, totalPages } = AppState.pagination;
+        const startIndex = (currentPage - 1) * itemsPerPage + 1;
+        const endIndex = Math.min(currentPage * itemsPerPage, totalCount);
+
+        if (totalPages > 1) {
+            countEl.textContent = `Showing ${startIndex}-${endIndex} of ${totalCount} torrents`;
+        } else {
+            countEl.textContent = `Showing ${totalCount} torrent${totalCount !== 1 ? 's' : ''}`;
+        }
     }
 }
 
@@ -1025,6 +1726,10 @@ function loadSettingsIntoUI() {
     // Notifications
     document.getElementById('setting-show-toasts').checked = settings.showToasts;
     document.getElementById('setting-show-refresh-prompt').checked = settings.showRefreshPrompt;
+
+    // Pagination settings
+    document.getElementById('setting-items-per-page').value = settings.pagination?.itemsPerPage || 50;
+    document.getElementById('setting-enable-deduplication').checked = settings.pagination?.enableDeduplication !== false;
 }
 
 async function saveSettingsFromUI() {
@@ -1040,7 +1745,11 @@ async function saveSettingsFromUI() {
         },
         defaultCategories: Array.from(document.querySelectorAll('.default-category:checked')).map(cb => cb.value),
         showToasts: document.getElementById('setting-show-toasts').checked,
-        showRefreshPrompt: document.getElementById('setting-show-refresh-prompt').checked
+        showRefreshPrompt: document.getElementById('setting-show-refresh-prompt').checked,
+        pagination: {
+            itemsPerPage: parseInt(document.getElementById('setting-items-per-page').value),
+            enableDeduplication: document.getElementById('setting-enable-deduplication').checked
+        }
     };
 
     saveSettings(settings);
@@ -1096,7 +1805,11 @@ function getSettings() {
         },
         defaultCategories: ['PC-ISO', 'PC-Rip'],
         showToasts: true,
-        showRefreshPrompt: true
+        showRefreshPrompt: true,
+        pagination: {
+            itemsPerPage: 50,
+            enableDeduplication: true
+        }
     };
 
     const saved = localStorage.getItem('iptbrowser_settings');
@@ -1114,7 +1827,8 @@ function getSettings() {
             defaultSort: parsed.defaultSort || defaults.defaultSort,
             defaultCategories: parsed.defaultCategories || defaults.defaultCategories,
             showToasts: parsed.showToasts !== undefined ? parsed.showToasts : defaults.showToasts,
-            showRefreshPrompt: parsed.showRefreshPrompt !== undefined ? parsed.showRefreshPrompt : defaults.showRefreshPrompt
+            showRefreshPrompt: parsed.showRefreshPrompt !== undefined ? parsed.showRefreshPrompt : defaults.showRefreshPrompt,
+            pagination: parsed.pagination || defaults.pagination
         };
         return cachedSettings;
     } catch (e) {
@@ -1142,6 +1856,12 @@ function applySettings(settings) {
     AppState.currentSort.field = settings.defaultSort.field;
     AppState.currentSort.order = settings.defaultSort.order;
     updateSortIndicators();
+
+    // Apply pagination settings
+    if (settings.pagination) {
+        AppState.pagination.itemsPerPage = settings.pagination.itemsPerPage;
+        AppState.pagination.enableDeduplication = settings.pagination.enableDeduplication;
+    }
 
     // Re-filter and sort with new settings
     applyFiltersAndSort();
@@ -1304,80 +2024,6 @@ function isMovieCategory(category) {
     return movieCategories.includes(category);
 }
 
-async function toggleMetadataRow(torrent, torrentRow) {
-    const metadataRowId = `metadata-row-${torrent.id}`;
-    const existingMetadataRow = document.getElementById(metadataRowId);
-
-    // Check if already expanded
-    if (existingMetadataRow) {
-        // Collapse: remove the expanded row
-        existingMetadataRow.remove();
-        AppState.expandedRows.delete(torrent.id);
-
-        // Update button text
-        const btn = torrentRow.querySelector('.btn-expand-meta');
-        if (btn) {
-            btn.textContent = '▼ More';
-        }
-        return;
-    }
-
-    // Expand: insert new row with loading spinner
-    AppState.expandedRows.add(torrent.id);
-
-    const metadataRow = document.createElement('tr');
-    metadataRow.id = metadataRowId;
-    metadataRow.className = 'metadata-row';
-
-    const metadataCell = document.createElement('td');
-    metadataCell.colSpan = 9; // Adjust based on total number of columns
-    metadataCell.className = 'metadata-container';
-    metadataCell.innerHTML = '<div class="loading-spinner">Loading movie data...</div>';
-
-    metadataRow.appendChild(metadataCell);
-    torrentRow.parentNode.insertBefore(metadataRow, torrentRow.nextSibling);
-
-    // Update button text
-    const btn = torrentRow.querySelector('.btn-expand-meta');
-    if (btn) {
-        btn.textContent = '▲ Less';
-    }
-
-    // Fetch TMDB data
-    try {
-        if (!AppState.tmdbClient) {
-            throw new Error('TMDB client not initialized');
-        }
-
-        let movieData;
-
-        // Try IMDB ID first if available
-        if (torrent.imdb_id) {
-            console.log(`Fetching via IMDB ID: ${torrent.imdb_id}`);
-            movieData = await AppState.tmdbClient.findByIMDBId(torrent.imdb_id);
-        } else if (torrent.metadata && torrent.metadata.year) {
-            // Fallback: search by title and year
-            // Extract clean title from torrent name (remove year, quality, release group, etc.)
-            const cleanTitle = extractMovieTitle(torrent.name);
-            console.log(`Original: "${torrent.name}"`);
-            console.log(`Extracted: "${cleanTitle}" (${torrent.metadata.year})`);
-            movieData = await AppState.tmdbClient.findByTitleAndYear(cleanTitle, torrent.metadata.year);
-        } else {
-            throw new Error('No IMDB ID or year available for this torrent');
-        }
-
-        metadataCell.innerHTML = renderMetadataContent(movieData);
-    } catch (error) {
-        console.error('Error fetching TMDB data:', error);
-        metadataCell.innerHTML = `
-            <div class="metadata-error">
-                <p>Could not load movie data: ${error.message}</p>
-                <p>Please check your TMDB API key in settings.</p>
-            </div>
-        `;
-    }
-}
-
 function extractMovieTitle(torrentName) {
     // Remove common patterns: year, quality, codec, release group
     let title = torrentName;
@@ -1481,7 +2127,8 @@ function loadTMDBSettings() {
         // Check if TMDBClient is available
         if (typeof TMDBClient !== 'undefined') {
             AppState.tmdbClient = new TMDBClient(savedApiKey);
-            console.log('TMDB integration enabled with client');
+            AppState.metadataLoader = new MovieMetadataLoader(AppState.tmdbClient, 250);
+            console.log('TMDB integration enabled with progressive loader');
         } else {
             console.error('TMDBClient not found! Make sure tmdb_client.js is loaded.');
         }

@@ -775,24 +775,6 @@ body {
     margin-right: 8px;
 }
 
-/* Expand/collapse button */
-.btn-expand-meta {
-    margin-top: 5px;
-    padding: 4px 10px;
-    font-size: 0.75rem;
-    background-color: var(--bg-tertiary);
-    color: var(--accent-primary);
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
-    cursor: pointer;
-    transition: all 0.2s ease;
-}
-
-.btn-expand-meta:hover {
-    background-color: var(--bg-hover);
-    border-color: var(--accent-primary);
-}
-
 /* Expanded metadata row */
 .metadata-row {
     background-color: var(--bg-tertiary);
@@ -959,9 +941,28 @@ body {
 
 /* Loading spinner */
 .loading-spinner {
-    text-align: center;
-    padding: 40px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 30px;
     color: var(--text-secondary);
+    gap: 10px;
+}
+
+.spinner-icon {
+    font-size: 24px;
+    animation: spin 2s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.loading-spinner span {
+    font-size: 14px;
+    font-style: italic;
 }
 
 /* Error message */
@@ -969,10 +970,19 @@ body {
     text-align: center;
     padding: 30px;
     color: var(--danger);
+    background-color: rgba(244, 67, 54, 0.1);
+    border-radius: 8px;
+    margin: 10px;
 }
 
 .metadata-error p {
-    margin: 10px 0;
+    margin: 8px 0;
+}
+
+.metadata-error .error-hint {
+    font-size: 13px;
+    color: var(--text-secondary);
+    font-style: italic;
 }
 
 /* Responsive adjustments */
@@ -1020,5 +1030,224 @@ body {
     .cast-photo-placeholder {
         width: 40px;
         height: 40px;
+    }
+}
+
+/* ===================================================================
+   PAGINATION CONTROLS
+   ================================================================== */
+
+.pagination-controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 30px;
+    padding: 20px;
+    flex-wrap: wrap;
+}
+
+.pagination-btn {
+    min-width: 40px;
+    height: 40px;
+    padding: 8px 12px;
+    background-color: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.pagination-btn:hover:not(:disabled):not(.active) {
+    background-color: var(--bg-hover);
+    border-color: var(--accent-primary);
+    transform: translateY(-1px);
+}
+
+.pagination-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.pagination-btn.active {
+    background-color: var(--accent-primary);
+    color: white;
+    border-color: var(--accent-primary);
+    cursor: default;
+}
+
+.pagination-ellipsis {
+    color: var(--text-muted);
+    padding: 0 8px;
+    font-size: 1.2rem;
+    user-select: none;
+}
+
+.pagination-info {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    margin-left: 15px;
+    padding-left: 15px;
+    border-left: 1px solid var(--border-color);
+}
+
+/* Mobile responsive pagination */
+@media (max-width: 640px) {
+    .pagination-controls {
+        gap: 6px;
+        padding: 15px 10px;
+    }
+
+    .pagination-btn {
+        min-width: 36px;
+        height: 36px;
+        padding: 6px 10px;
+        font-size: 0.85rem;
+    }
+
+    .pagination-info {
+        flex-basis: 100%;
+        text-align: center;
+        margin: 10px 0 0 0;
+        padding: 10px 0 0 0;
+        border-left: none;
+        border-top: 1px solid var(--border-color);
+    }
+}
+
+/* ===================================================================
+   GROUPED MOVIE VERSIONS
+   ================================================================== */
+
+.btn-versions {
+    margin-left: 10px;
+    padding: 4px 10px;
+    background-color: var(--accent-secondary);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-versions:hover {
+    background-color: var(--accent-primary);
+    transform: translateY(-1px);
+}
+
+.versions-row {
+    background-color: var(--bg-secondary);
+}
+
+.versions-cell {
+    padding: 0 !important;
+}
+
+.versions-container {
+    padding: 20px;
+    border-top: 2px solid var(--accent-secondary);
+    background-color: var(--bg-tertiary);
+}
+
+.versions-title {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.versions-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.version-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 15px;
+    background-color: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    transition: all 0.2s ease;
+}
+
+.version-item:hover {
+    border-color: var(--accent-primary);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.version-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.version-name {
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    font-weight: 500;
+    margin-bottom: 6px;
+    word-wrap: break-word;
+}
+
+.version-meta {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.version-meta .badge {
+    font-size: 0.7rem;
+}
+
+.version-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.btn-sm {
+    padding: 6px 12px;
+    font-size: 0.8rem;
+}
+
+/* Mobile responsive versions */
+@media (max-width: 768px) {
+    .versions-container {
+        padding: 15px;
+    }
+
+    .version-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+
+    .version-actions {
+        width: 100%;
+        justify-content: flex-end;
+    }
+
+    .version-meta {
+        font-size: 0.75rem;
+    }
+
+    .btn-versions {
+        font-size: 0.7rem;
+        padding: 3px 8px;
     }
 }
