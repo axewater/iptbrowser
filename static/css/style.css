@@ -451,6 +451,50 @@ body {
     font-size: 0.75rem;
 }
 
+/* Game indicator badges */
+.badge-update {
+    background-color: #ff9800;  /* Orange */
+    color: white;
+    margin-left: 10px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 4px;
+    display: inline-block;
+    white-space: nowrap;
+}
+
+.badge-dlc {
+    background-color: #9c27b0;  /* Purple */
+    color: white;
+    margin-left: 10px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 4px;
+    display: inline-block;
+    white-space: nowrap;
+}
+
+.badge-patch {
+    background-color: #00bcd4;  /* Cyan */
+    color: white;
+    margin-left: 10px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 4px;
+    display: inline-block;
+    white-space: nowrap;
+}
+
+.badge-update:hover,
+.badge-dlc:hover,
+.badge-patch:hover {
+    opacity: 0.8;
+    cursor: help;
+}
+
 /* Loading Spinner */
 .loading {
     display: flex;
@@ -1030,6 +1074,93 @@ body {
     .cast-photo-placeholder {
         width: 40px;
         height: 40px;
+    }
+}
+
+/* ===================================================================
+   GAME METADATA DISPLAY (IGDB)
+   ================================================================== */
+
+.game-metadata {
+    display: flex;
+    gap: 20px;
+    padding: 15px;
+    background-color: var(--bg-secondary);
+    border-radius: 8px;
+    margin-top: 10px;
+}
+
+.game-cover {
+    flex-shrink: 0;
+}
+
+.game-cover img {
+    width: 150px;
+    height: 200px;
+    object-fit: cover;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.game-info {
+    flex: 1;
+}
+
+.game-info h4 {
+    margin: 0 0 10px 0;
+    color: var(--accent-primary);
+    font-size: 1.3rem;
+}
+
+.game-rating {
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+    font-size: 0.9rem;
+}
+
+.game-genres {
+    color: var(--accent-secondary);
+    margin-bottom: 12px;
+    font-size: 0.85rem;
+}
+
+.game-summary {
+    margin: 12px 0;
+    line-height: 1.6;
+    color: var(--text-primary);
+}
+
+.game-developer {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    margin-top: 10px;
+}
+
+.trailer-link {
+    display: inline-block;
+    margin-top: 12px;
+    padding: 8px 16px;
+    background-color: var(--accent-primary);
+    color: white;
+    text-decoration: none;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    transition: background-color 0.2s;
+}
+
+.trailer-link:hover {
+    background-color: var(--accent-secondary);
+}
+
+/* Responsive adjustments for game metadata */
+@media (max-width: 768px) {
+    .game-metadata {
+        flex-direction: column;
+    }
+
+    .game-cover img {
+        width: 120px;
+        height: 160px;
     }
 }
 

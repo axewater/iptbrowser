@@ -37,6 +37,9 @@
                     <a href="/tmdb-manager" class="btn btn-icon" title="Movie Metadata Settings">
                         <span class="icon-tmdb">🎬</span>
                     </a>
+                    <a href="/igdb-manager" class="btn btn-icon" title="Game Metadata Settings">
+                        <span class="icon-igdb">🎮</span>
+                    </a>
                     <button id="settings-btn" class="btn btn-icon" title="Settings">
                         <span class="icon-cog">⚙️</span>
                     </button>
@@ -322,6 +325,7 @@
     </div>
 
     <script src="{{ url_for('static', filename='js/tmdb_client.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/igdb_client.js') }}"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>

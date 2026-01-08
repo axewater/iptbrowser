@@ -42,7 +42,12 @@ const AppState = {
     tmdbApiKey: null,
     tmdbClient: null,
     metadataLoader: null,  // Progressive loader for movie metadata
-    sessionMetadataCache: {},  // { imdbId: movieData } - In-memory cache for current session
+    sessionMetadataCache: {},  // { imdbId: movieData or gameName_platform: gameData } - In-memory cache for current session
+
+    // IGDB integration state
+    igdbEnabled: false,
+    igdbClient: null,
+    gameMetadataLoader: null,  // Progressive loader for game metadata
 
     // Pagination state
     pagination: {
@@ -179,6 +184,121 @@ class MovieMetadataLoader {
     }
 }
 
+/**
+ * Game Metadata Loader (Progressive IGDB Data Loading)
+ * Loads game metadata from IGDB with rate limiting (4 req/sec)
+ * Uses 3-tier caching: session → localStorage → API
+ */
+class GameMetadataLoader {
+    constructor(igdbClient, delay = 250) {
+        this.igdbClient = igdbClient;
+        this.delay = delay;  // 250ms = 4 req/sec (IGDB rate limit)
+        this.queue = [];
+        this.isProcessing = false;
+    }
+
+    /**
+     * Add games to the loading queue and start processing
+     * @param {Array} torrents - Array of torrent objects (game category only)
+     */
+    enqueue(torrents) {
+        // Cancel any in-progress loading
+        this.cancel();
+
+        // Build queue from game torrents only
+        this.queue = torrents
+            .filter(t => isGameCategory(t.category))
+            .map(torrent => ({ torrent, status: 'pending' }));
+
+        // Start processing
+        this.process();
+    }
+
+    /**
+     * Process the queue sequentially with delays
+     */
+    async process() {
+        if (this.isProcessing) return;
+        this.isProcessing = true;
+
+        while (this.queue.length > 0) {
+            const item = this.queue.shift();
+
+            if (item.status === 'cancelled') continue;
+
+            item.status = 'loading';
+
+            try {
+                await this.loadGameMetadata(item.torrent);
+                item.status = 'loaded';
+            } catch (error) {
+                console.error(`Failed to load metadata for ${item.torrent.name}:`, error);
+                item.status = 'error';
+            }
+
+            // Rate limiting delay between requests
+            if (this.queue.length > 0) {
+                await new Promise(resolve => setTimeout(resolve, this.delay));
+            }
+        }
+
+        this.isProcessing = false;
+    }
+
+    /**
+     * Load metadata for a single game and update its DOM row
+     * @param {Object} torrent - Torrent object
+     */
+    async loadGameMetadata(torrent) {
+        const metadataRow = document.getElementById(`metadata-row-${torrent.id}`);
+        if (!metadataRow) {
+            console.warn(`Metadata row not found for torrent ${torrent.id}`);
+            return;
+        }
+
+        const metadataCell = metadataRow.querySelector('.metadata-container');
+
+        try {
+            // Use normalized name (from deduplication) or fallback to normalizing the torrent name
+            const normalizedName = torrent.displayName || normalizeGameTitle(torrent.name);
+            const platform = detectPlatform(torrent.category);
+
+            console.log(`Fetching game metadata: "${normalizedName}" (${platform})`);
+
+            const gameData = await this.igdbClient.searchGame(normalizedName, platform);
+
+            // Render the content
+            metadataCell.innerHTML = renderGameMetadataContent(gameData);
+
+            // Store in session cache for future renders
+            const cacheKey = `${normalizedName}_${platform}`;
+            AppState.sessionMetadataCache[cacheKey] = gameData;
+
+        } catch (error) {
+            console.error('Error fetching IGDB data:', error);
+            metadataCell.innerHTML = `
+                <div class="metadata-error">
+                    <p>Could not load game data: ${error.message}</p>
+                    <p class="error-hint">Game may not be in IGDB database or check network connection.</p>
+                </div>
+            `;
+        }
+    }
+
+    /**
+     * Cancel all pending loads
+     */
+    cancel() {
+        this.queue.forEach(item => {
+            if (item.status === 'pending') {
+                item.status = 'cancelled';
+            }
+        });
+        this.queue = [];
+        this.isProcessing = false;
+    }
+}
+
 // Search debounce timer
 let searchTimeout = null;
 
@@ -215,7 +335,10 @@ async function initializeApp() {
     // 4. Load TMDB settings
     loadTMDBSettings();
 
-    // 4.5. Initialize pagination from URL/session
+    // 5. Load IGDB settings
+    loadIGDBSettings();
+
+    // 6. Initialize pagination from URL/session
     initializePagination();
 
     // 5. Apply filters and display
@@ -1284,6 +1407,37 @@ function displayTorrents(torrents) {
             console.log('All movies cached, no loading needed');
         }
     }
+
+    // Progressive game metadata loading (IGDB)
+    if (AppState.gameMetadataLoader) {
+        const gamesTorents = torrents.filter(t => isGameCategory(t.category) && t.displayName);
+
+        // Filter out games that are already cached
+        const gamesToLoad = gamesTorents.filter(t => {
+            const normalizedName = t.displayName || normalizeGameTitle(t.name);
+            const platform = detectPlatform(t.category);
+            const cacheKey = `${normalizedName}_${platform}`;
+
+            // Check session cache
+            if (AppState.sessionMetadataCache[cacheKey]) {
+                return false;
+            }
+
+            // Check localStorage cache
+            if (AppState.igdbClient && AppState.igdbClient.isCached(normalizedName, platform)) {
+                return false;
+            }
+
+            return true;  // Not cached, needs loading
+        });
+
+        if (gamesToLoad.length > 0) {
+            console.log(`Starting progressive load for ${gamesToLoad.length} games (${gamesTorents.length - gamesToLoad.length} cached)`);
+            AppState.gameMetadataLoader.enqueue(gamesToLoad);
+        } else if (gamesTorents.length > 0) {
+            console.log('All games cached, no loading needed');
+        }
+    }
 }
 
 // ===================================================================
@@ -1650,6 +1804,15 @@ function createTorrentRow(torrent) {
         if (AppState.tmdbEnabled && meta.year) {
             tr.dataset.autoExpand = 'true';
             tr.dataset.torrentId = torrent.id;
+        }
+    } else if (isGameCategory(torrent.category)) {
+        // Mark game row for auto-expansion if IGDB enabled
+        if (AppState.igdbEnabled && torrent.displayName) {
+            tr.dataset.autoExpand = 'true';
+            tr.dataset.torrentId = torrent.id;
+            metadataCell.textContent = '-';
+        } else {
+            metadataCell.textContent = '-';
         }
     } else {
         metadataCell.textContent = '-';
@@ -2498,6 +2661,97 @@ function loadTMDBSettings() {
 }
 
 // Note: saveTMDBSettings() is now in tmdb_manager.js (dedicated settings page)
+
+// ===================================================================
+// IGDB METADATA INTEGRATION
+// ===================================================================
+
+/**
+ * Detect platform from torrent category
+ * @param {string} category - Torrent category
+ * @returns {string} Platform name for IGDB API
+ */
+function detectPlatform(category) {
+    const platformMap = {
+        'PC-ISO': 'PC',
+        'PC-Rip': 'PC',
+        'PC-Mixed': 'PC',
+        'Nintendo': 'Nintendo Switch',  // Ambiguous - could be various Nintendo consoles
+        'Playstation': 'PlayStation 4',  // Ambiguous - defaults to PS4
+        'Xbox': 'Xbox One',              // Ambiguous - defaults to Xbox One
+        'Wii': 'Wii'
+    };
+    return platformMap[category] || 'PC';
+}
+
+/**
+ * Render game metadata content
+ * @param {Object} gameData - Game metadata from IGDB
+ * @returns {string} HTML string
+ */
+function renderGameMetadataContent(gameData) {
+    const releaseYear = gameData.release_year || 'N/A';
+    const rating = gameData.rating ? `${gameData.rating}/10` : 'N/A';
+    const genres = gameData.genres && gameData.genres.length > 0 ?
+        gameData.genres.join(', ') : 'N/A';
+
+    let html = '<div class="game-metadata">';
+
+    // Cover image
+    if (gameData.cover_url) {
+        html += `
+            <div class="game-cover">
+                <img src="${gameData.cover_url}" alt="${gameData.name}" />
+            </div>
+        `;
+    }
+
+    // Info section
+    html += '<div class="game-info">';
+    html += `<h4>${gameData.name}</h4>`;
+    html += `<div class="game-rating">Rating: ${rating} | ${releaseYear}</div>`;
+    html += `<div class="game-genres">${genres}</div>`;
+
+    if (gameData.summary) {
+        html += `<p class="game-summary">${gameData.summary}</p>`;
+    }
+
+    html += `<div class="game-developer">Developer: ${gameData.developer || 'Unknown'}</div>`;
+
+    // Trailer link
+    if (gameData.trailer_url) {
+        html += `<a href="${gameData.trailer_url}" target="_blank" class="trailer-link">Watch Trailer</a>`;
+    }
+
+    html += '</div>';  // game-info
+    html += '</div>';  // game-metadata
+
+    return html;
+}
+
+/**
+ * Load IGDB settings and initialize client
+ */
+function loadIGDBSettings() {
+    const savedEnabled = localStorage.getItem('igdb_enabled') === 'true';
+
+    console.log('Loading IGDB settings:', { enabled: savedEnabled });
+
+    if (savedEnabled) {
+        AppState.igdbEnabled = true;
+
+        // Check if IGDBClient is available
+        if (typeof IGDBClient !== 'undefined') {
+            AppState.igdbClient = new IGDBClient();
+            AppState.gameMetadataLoader = new GameMetadataLoader(AppState.igdbClient, 250);
+            console.log('IGDB integration enabled with progressive loader');
+        } else {
+            console.error('IGDBClient not found! Make sure igdb_client.js is loaded.');
+        }
+    } else {
+        console.log('IGDB not enabled');
+    }
+}
 
 // ===================================================================
 // KEYBOARD SHORTCUTS (Future enhancement)

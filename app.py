@@ -6,10 +6,15 @@ Provides a better filtering interface for IPTorrents
 import json
 import os
 from datetime import datetime, timedelta
+from dotenv import load_dotenv
 from flask import Flask, render_template, jsonify, request
 from scraper import IPTorrentsScraper, CATEGORIES
 from config_manager import ConfigManager
 from qbittorrent_client import QbittorrentClient, AuthenticationError, ConnectionError, TorrentAddError
+from igdb_client import IGDBClient, IGDB_PLATFORMS
+
+# Load environment variables from .env file
+load_dotenv()
 
 app = Flask(__name__)
 app.config['JSON_SORT_KEYS'] = False
@@ -18,6 +23,7 @@ app.config['JSON_SORT_KEYS'] = False
 config_manager = ConfigManager()
 scraper_instance = None
 qbt_client = None
+igdb_client = None
 
 
 def get_qbt_client():
@@ -26,6 +32,14 @@ def get_qbt_client():
     if qbt_client is None:
         qbt_client = QbittorrentClient(config_manager)
     return qbt_client
+
+
+def get_igdb_client():
+    """Get or create IGDB client instance"""
+    global igdb_client
+    if igdb_client is None:
+        igdb_client = IGDBClient(config_manager)
+    return igdb_client
 
 # Cache configuration
 CACHE_FILE = 'cache.json'
@@ -1044,6 +1058,171 @@ def api_qbittorrent_add():
             'success': False,
             'message': f'Unexpected error: {str(e)}'
         }), 500
+
+
+# ===================================================================
+# IGDB API ROUTES
+# ===================================================================
+
+@app.route('/api/igdb/search', methods=['POST'])
+def api_igdb_search():
+    """
+    Search for game by normalized name
+
+    Request JSON:
+        {
+            "game_name": "half life",
+            "platform": "PC"  # optional
+        }
+
+    Response:
+        {
+            "success": true,
+            "data": {
+                "name": "Half-Life",
+                "cover_url": "https://...",
+                "summary": "...",
+                "rating": 9.2,
+                "genres": ["FPS", "Action"],
+                ...
+            }
+        }
+    """
+    try:
+        data = request.get_json()
+
+        if not data or 'game_name' not in data:
+            return jsonify({'success': False, 'error': 'game_name required'}), 400
+
+        game_name = data.get('game_name')
+        platform = data.get('platform')  # Optional
+
+        # Map platform names to IGDB platform IDs
+        platform_map = {
+            'PC': '6',
+            'Nintendo Switch': '130',
+            'Nintendo 3DS': '37',
+            'Wii': '5',
+            'Wii U': '41',
+            'PlayStation 3': '9',
+            'PlayStation 4': '48',
+            'PlayStation 5': '167',
+            'Xbox 360': '12',
+            'Xbox One': '49',
+            'Xbox Series': '169'
+        }
+
+        platform_id = platform_map.get(platform) if platform else None
+
+        # Get IGDB client and search
+        client = get_igdb_client()
+        game_data = client.search_game(game_name, platform_id)
+
+        if game_data:
+            return jsonify({
+                'success': True,
+                'data': game_data
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Game not found in IGDB database'
+            }), 404
+
+    except Exception as e:
+        logger.error(f"IGDB search error: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/igdb/status')
+def api_igdb_status():
+    """
+    Check if IGDB is configured and working
+
+    Query params:
+        enabled: "true" if frontend has enabled IGDB
+
+    Response:
+        {
+            "configured": true,
+            "enabled": true,
+            "has_credentials": true,
+            "token_valid": true
+        }
+    """
+    try:
+        client_id = os.getenv('IGDB_CLIENT_ID')
+        client_secret = os.getenv('IGDB_CLIENT_SECRET')
+
+        has_credentials = bool(client_id and client_secret)
+
+        # Check if enabled in frontend (passed as query param)
+        enabled = request.args.get('enabled', 'false') == 'true'
+
+        token_valid = False
+        if has_credentials:
+            try:
+                client = get_igdb_client()
+                token_status = client.get_token_status()
+                token_valid = token_status.get('is_valid', False)
+            except:
+                pass
+
+        return jsonify({
+            'configured': has_credentials,
+            'enabled': enabled,
+            'has_credentials': has_credentials,
+            'token_valid': token_valid
+        })
+
+    except Exception as e:
+        logger.error(f"IGDB status check error: {e}")
+        return jsonify({
+            'configured': False,
+            'enabled': False,
+            'has_credentials': False,
+            'token_valid': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/igdb/test', methods=['POST'])
+def api_igdb_test():
+    """
+    Test IGDB connection with a known game
+
+    Response:
+        {
+            "success": true,
+            "message": "Connected successfully. Found: Half-Life",
+            "token_expiry": "2025-03-10T14:23:45.123456",
+            "test_game": {...}
+        }
+    """
+    try:
+        client = get_igdb_client()
+        result = client.test_connection()
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"IGDB connection test error: {e}")
+        return jsonify({
+            'success': False,
+            'message': str(e)
+        }), 500
+
+
+# ===================================================================
+# TEMPLATE ROUTES
+# ===================================================================
+
+@app.route('/igdb-manager')
+def igdb_manager():
+    """IGDB settings page"""
+    return render_template('igdb_manager.html')
 
 
 if __name__ == '__main__':

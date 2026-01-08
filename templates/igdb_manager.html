@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IGDB Settings - IPTorrents Browser</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/cookie_manager.css') }}">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-top">
+                <a href="/" class="btn btn-back">← Back to Browser</a>
+                <div class="header-title">
+                    <h1>🎮 Game Metadata Settings</h1>
+                    <p class="subtitle">Configure IGDB (Internet Game Database) integration</p>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <div class="cookie-manager-content">
+
+            <!-- IGDB Status Card -->
+            <section class="card">
+                <h2>Current Status</h2>
+                <div id="igdb-status" class="status-container">
+                    <div class="loading">Loading status...</div>
+                </div>
+            </section>
+
+            <!-- Configuration Card -->
+            <section class="card">
+                <h2>Configuration</h2>
+                <div class="config-section">
+                    <div class="form-group">
+                        <label class="checkbox-label" style="font-size: 1rem; margin-bottom: 1rem;">
+                            <input type="checkbox" id="igdb-enabled" style="width: 20px; height: 20px;">
+                            <span style="margin-left: 10px;">Enable game metadata from IGDB</span>
+                        </label>
+                        <p class="setting-info" style="margin-left: 30px; color: var(--text-secondary);">
+                            Shows game cover art, descriptions, ratings, genres, developers, and trailers for game torrents
+                        </p>
+                    </div>
+
+                    <div class="button-group" style="margin-top: 2rem;">
+                        <button id="test-igdb-btn" class="btn btn-primary">Test Connection</button>
+                        <button id="clear-cache-btn" class="btn btn-secondary">Clear Cache</button>
+                    </div>
+
+                    <div id="igdb-message" class="test-result" style="display: none; margin-top: 1rem;">
+                        <!-- Messages populated by JavaScript -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- Backend Status Card -->
+            <section class="card">
+                <h2>Backend Status</h2>
+                <div class="config-section">
+                    <p style="margin-bottom: 1rem; color: var(--text-secondary);">
+                        IGDB uses secure server-side authentication. Credentials are stored in the <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">.env</code> file on the server (not in your browser).
+                    </p>
+                    <div id="backend-status" class="status-container">
+                        <div class="loading">Checking backend status...</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Cache Info Card -->
+            <section class="card">
+                <h2>Cache Information</h2>
+                <div class="cache-info-section">
+                    <p>Game data is cached in your browser for 7 days to minimize API calls.</p>
+                    <div id="cache-stats" style="margin-top: 1rem; padding: 1rem; background-color: var(--bg-tertiary); border-radius: 8px;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                            <div>
+                                <strong>Cached Games:</strong>
+                                <div id="cache-entries" style="font-size: 1.5rem; color: var(--accent-primary);">-</div>
+                            </div>
+                            <div>
+                                <strong>Cache Size:</strong>
+                                <div id="cache-size" style="font-size: 1.5rem; color: var(--accent-primary);">-</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- How to Get IGDB Credentials -->
+            <section class="card">
+                <h2>How to Get Your IGDB Credentials</h2>
+                <div class="manual-instructions">
+                    <p style="margin-bottom: 1.5rem; color: var(--text-secondary);">
+                        IGDB is owned by Twitch and uses Twitch OAuth2 for authentication.
+                        You'll need to create a Twitch Developer application to get credentials.
+                    </p>
+
+                    <div class="instruction-steps">
+                        <div class="instruction-step">
+                            <div class="step-number">1</div>
+                            <div class="step-content">
+                                <h3>Create Twitch Account</h3>
+                                <p>Go to <a href="https://www.twitch.tv/signup" target="_blank">https://www.twitch.tv/signup</a></p>
+                                <p>Create a free Twitch account (or use existing)</p>
+                            </div>
+                        </div>
+
+                        <div class="instruction-step">
+                            <div class="step-number">2</div>
+                            <div class="step-content">
+                                <h3>Register Your Application</h3>
+                                <p>Navigate to <a href="https://dev.twitch.tv/console/apps" target="_blank">Twitch Developer Console</a></p>
+                                <p>Click <strong>"Register Your Application"</strong></p>
+                                <p>Fill in the form:
+                                    <ul style="margin-top: 0.5rem;">
+                                        <li><strong>Name:</strong> IPT Browser (or any name)</li>
+                                        <li><strong>OAuth Redirect URLs:</strong> http://localhost</li>
+                                        <li><strong>Category:</strong> Application Integration</li>
+                                    </ul>
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="instruction-step">
+                            <div class="step-number">3</div>
+                            <div class="step-content">
+                                <h3>Get Your Credentials</h3>
+                                <p>After registering, click <strong>"Manage"</strong> on your application</p>
+                                <p>Copy the <strong>Client ID</strong> (long alphanumeric string)</p>
+                                <p>Click <strong>"New Secret"</strong> to generate a <strong>Client Secret</strong></p>
+                                <p style="color: #ff9800; font-weight: 600;">⚠️ Important: Copy the secret immediately - it's only shown once!</p>
+                            </div>
+                        </div>
+
+                        <div class="instruction-step">
+                            <div class="step-number">4</div>
+                            <div class="step-content">
+                                <h3>Add to .env File</h3>
+                                <p>Open the <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">.env</code> file in your IPT Browser installation directory</p>
+                                <p>Add these lines:</p>
+                                <pre style="background: var(--bg-tertiary); padding: 1rem; border-radius: 6px; margin-top: 0.5rem; overflow-x: auto;"><code>IGDB_CLIENT_ID=your_client_id_here
+IGDB_CLIENT_SECRET=your_client_secret_here</code></pre>
+                                <p>Replace <code>your_client_id_here</code> and <code>your_client_secret_here</code> with your actual credentials</p>
+                            </div>
+                        </div>
+
+                        <div class="instruction-step">
+                            <div class="step-number">5</div>
+                            <div class="step-content">
+                                <h3>Restart Flask Server</h3>
+                                <p>After adding credentials to .env, restart the Flask server:</p>
+                                <ul style="margin-top: 0.5rem;">
+                                    <li>Stop the current server (Ctrl+C)</li>
+                                    <li>Start it again: <code>python app.py</code></li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <div class="instruction-step">
+                            <div class="step-number">6</div>
+                            <div class="step-content">
+                                <h3>Enable & Test</h3>
+                                <p>Return to this page and:</p>
+                                <ul style="margin-top: 0.5rem;">
+                                    <li>Check the "Enable game metadata from IGDB" checkbox</li>
+                                    <li>Click "Test Connection" to verify it works</li>
+                                    <li>Backend status above should show "Configured" (green)</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="margin-top: 2rem; padding: 1rem; background-color: var(--bg-tertiary); border-radius: 8px;">
+                        <h4 style="margin-top: 0; color: var(--accent-primary);">Rate Limits</h4>
+                        <p style="margin-bottom: 0;">
+                            <strong>IGDB Free Tier:</strong><br>
+                            • 4 requests per second<br>
+                            • 500,000 requests per month<br>
+                            <br>
+                            The application uses smart caching (7-day localStorage) and rate limiting (250ms delays) to stay well within these limits.
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- What You'll Get -->
+            <section class="card">
+                <h2>What You'll Get</h2>
+                <div class="features-section">
+                    <p style="margin-bottom: 1rem;">With IGDB integration enabled, game torrents will display:</p>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+                        <div class="feature-item">
+                            <div class="feature-icon">🖼️</div>
+                            <h3>Cover Art</h3>
+                            <p>High-quality game box art</p>
+                        </div>
+                        <div class="feature-item">
+                            <div class="feature-icon">📝</div>
+                            <h3>Description</h3>
+                            <p>Game plot and overview</p>
+                        </div>
+                        <div class="feature-item">
+                            <div class="feature-icon">⭐</div>
+                            <h3>Ratings</h3>
+                            <p>User and critic scores</p>
+                        </div>
+                        <div class="feature-item">
+                            <div class="feature-icon">🎬</div>
+                            <h3>Trailers</h3>
+                            <p>YouTube video links</p>
+                        </div>
+                        <div class="feature-item">
+                            <div class="feature-icon">🎮</div>
+                            <h3>Genres</h3>
+                            <p>Game categories and themes</p>
+                        </div>
+                        <div class="feature-item">
+                            <div class="feature-icon">👥</div>
+                            <h3>Developers</h3>
+                            <p>Game studio information</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="{{ url_for('static', filename='js/igdb_client.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/igdb_manager.js') }}"></script>
+</body>
+</html>
