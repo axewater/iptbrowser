@@ -355,47 +355,34 @@ function showRefreshPrompt() {
 // DATA FETCHING
 // ===================================================================
 
-async function refreshData(force = false) {
+async function refreshData(force = true) {
     const btn = document.getElementById('refresh-btn');
     const originalText = btn.textContent;
 
     btn.disabled = true;
-    btn.textContent = force ? 'Full Refresh...' : 'Quick Refresh...';
+    btn.textContent = 'Refreshing...';
 
     try {
         const categories = AppState.currentFilters.categories.join(',');
         const days = getTimeWindowDays();
-        const mode = force ? 'full' : 'incremental';
+        const mode = 'full';  // Always do full refresh to respect time window setting
 
-        let url = `/api/refresh?mode=${mode}&categories=${categories}`;
-        if (force && days) {
-            url += `&days=${days}`;
-        }
+        let url = `/api/refresh?mode=${mode}&categories=${categories}&days=${days}`;
 
         const response = await fetch(url);
         const data = await response.json();
 
         console.log('Refresh response:', data);
 
-        // Reload torrents with appropriate mode
-        if (force) {
-            // Full refresh - fetch all data
-            await loadFullData();
-        } else {
-            // Incremental - reload cache (which now has new torrents)
-            await loadCachedData();
-        }
+        // Full refresh - fetch all data
+        await loadFullData();
 
         // Re-apply filters and sort
         applyFiltersAndSort();
 
         // Show success message
-        const newCount = data.new_torrents || 0;
-        if (newCount > 0) {
-            showToast(`${newCount} new torrent${newCount !== 1 ? 's' : ''} added!`, 'success');
-        } else {
-            showToast('No new torrents found', 'info');
-        }
+        const totalCount = AppState.allTorrents.length;
+        showToast(`Refreshed! Loaded ${totalCount} torrent${totalCount !== 1 ? 's' : ''} (${days} days)`, 'success');
 
         btn.textContent = 'Refreshed!';
         setTimeout(() => {
@@ -462,8 +449,8 @@ function applyFiltersAndSort() {
     // Sort
     filtered = sortTorrents(filtered);
 
-    // Deduplicate movies
-    filtered = deduplicateMovies(filtered);
+    // Deduplicate movies and games
+    filtered = deduplicateTorrents(filtered);
 
     // Update state
     AppState.displayedTorrents = filtered;
@@ -596,6 +583,123 @@ function normalizeMovieTitle(title) {
 }
 
 /**
+ * Detect special game patterns (UPDATE, DLC, PATCH) before normalization
+ * This must be called BEFORE normalizeGameTitle() to preserve pattern info
+ * @param {string} title - Raw torrent name
+ * @returns {object} Pattern detection flags and extracted metadata
+ */
+function detectGamePatterns(title) {
+    const patterns = {
+        hasUpdate: false,
+        updateVersion: null,
+        isDLC: false,
+        dlcName: null,
+        hasPatch: false,
+        patchVersion: null
+    };
+
+    // UPDATE detection: Must have version number to avoid false positives
+    // Matches: "Update v1.2", "Update 20251218", "Update v1 0 11"
+    // Also matches: "01122025 Update" (date before Update - DDMMYYYY format)
+    // Doesn't match: "Update Edition" (no version)
+
+    // Pattern 1: Standard "Update vX.X" format
+    const updateMatch = title.match(/\bUpdate\s+v?([\d.\s]+)/i);
+    if (updateMatch) {
+        const version = updateMatch[1].trim().replace(/\s+/g, '.');
+        if (version && /\d/.test(version)) {
+            patterns.hasUpdate = true;
+            patterns.updateVersion = version;
+        }
+    }
+
+    // Pattern 2: Date before Update (e.g., "01122025 Update")
+    const dateUpdateMatch = title.match(/\b(\d{8})\s+(Update|Patch|Hotfix)/i);
+    if (dateUpdateMatch && !patterns.hasUpdate) {
+        patterns.hasUpdate = true;
+        patterns.updateVersion = dateUpdateMatch[1]; // Store the date
+    }
+
+    // PATCH detection
+    const patchMatch = title.match(/\b(Patch|Hotfix)\s+v?([\d.\s]+)/i);
+    if (patchMatch) {
+        const version = patchMatch[2].trim().replace(/\s+/g, '.');
+        if (version && /\d/.test(version)) {
+            patterns.hasPatch = true;
+            patterns.patchVersion = version;
+        }
+    }
+
+    // DLC detection
+    if (title.match(/\b(DLC|Expansion|Add-?on|Season\s*Pass)\b/i)) {
+        patterns.isDLC = true;
+        // Try to extract DLC name (e.g., "Game DLC Pack 1-GROUP" → "Pack 1")
+        const dlcNameMatch = title.match(/\b(?:DLC|Expansion)[:\s-]+([^-]+?)(?:-[A-Z0-9]+)?$/i);
+        if (dlcNameMatch) {
+            patterns.dlcName = dlcNameMatch[1].trim();
+        }
+    }
+
+    return patterns;
+}
+
+/**
+ * Normalize game title for deduplication
+ * Removes platform, region, release group, version, DLC markers, and other noise
+ * @param {string} title - Raw torrent name
+ * @returns {string} Normalized title for comparison
+ */
+function normalizeGameTitle(title) {
+    let normalized = title.toLowerCase();
+
+    // 1. Remove language tags: [English], [Multi], (Multi-Language)
+    normalized = normalized.replace(/[\[\(][^\]\)]*(?:english|multi|language|multi\d*)[^\]\)]*[\]\)]/gi, '');
+
+    // 2. Remove edition types: Ultimate, Gold, Deluxe, GOTY, Directors Cut, etc.
+    normalized = normalized.replace(/\b(ultimate|gold|deluxe|goty|game\s*of\s*the\s*year|definitive|enhanced|complete|digital|premium|collectors?|special|directors?\s*cut)\s*(edition)?\b/gi, '');
+
+    // 3. Remove year patterns: (2023), [2023], 2023
+    normalized = normalized.replace(/[\[\(]?\b(19|20)\d{2}\b[\]\)]?/g, '');
+
+    // 4. Remove update/patch patterns
+    // Pattern A: Standard "Update vX.X" or "Patch v1.0.11"
+    normalized = normalized.replace(/\b(update|patch|hotfix|fix)\s*v?[\d.\s]+/gi, '');
+    // Pattern B: Date before Update - "01122025 Update" (DDMMYYYY format)
+    normalized = normalized.replace(/\b\d{8}\s+(update|patch|hotfix|fix)\b/gi, '');
+
+    // 5. Remove DLC/Expansion markers
+    normalized = normalized.replace(/\b(dlc|expansion|add-?on|season\s*pass)\b/gi, '');
+
+    // 6. Remove version numbers: v1.0, v1 02, v20251218, Build.12345
+    // Handle both dots and spaces as separators
+    normalized = normalized.replace(/\b(v|ver|version)[\d.\s]+\b/gi, '');
+    normalized = normalized.replace(/\bbuild\.?\d+\b/gi, '');
+
+    // 7. Remove platform indicators: x64, x86, 32bit, 64bit, PC, Windows
+    normalized = normalized.replace(/\b(x64|x86|32-?bit|64-?bit|pc|windows|win64)\b/gi, '');
+
+    // 8. Remove region codes: USA, EUR, JPN, PAL, NTSC, MULTI, World
+    normalized = normalized.replace(/\b(usa|eur|jpn|pal|ntsc|multi|world|region\s*free)\b/gi, '');
+
+    // 9. Remove release types: ISO, RIP, REPACK, PROPER, INTERNAL
+    normalized = normalized.replace(/\b(iso|rip|repack|proper|internal|read\.?nfo)\b/gi, '');
+
+    // 10. Remove release group at end (after dash): -RUNE, -CODEX, -RELOADED, etc.
+    normalized = normalized.replace(/-[a-z0-9]+$/i, '');
+
+    // 11. Remove common noise words at start
+    normalized = normalized.replace(/^(the|a|an)\s+/i, '');
+
+    // 12. Replace dots/underscores with spaces
+    normalized = normalized.replace(/[._]+/g, ' ');
+
+    // 13. Normalize whitespace (collapse multiple spaces)
+    normalized = normalized.replace(/\s+/g, ' ').trim();
+
+    return normalized;
+}
+
+/**
  * Extract quality score for comparison (higher is better)
  * @param {string} quality - Quality string from metadata (e.g., "2160p", "1080p")
  * @returns {number} Quality score (0-4)
@@ -610,6 +714,24 @@ function getQualityScore(quality) {
     if (q.includes('480p')) return 1;
 
     return 0;
+}
+
+/**
+ * Extract release type score for games (higher is better)
+ * @param {string} category - Game category (e.g., "PC-ISO", "PC-Rip")
+ * @returns {number} Release type score (0-3)
+ */
+function getReleaseTypeScore(category) {
+    const scores = {
+        'PC-ISO': 3,      // Full ISO releases (best quality)
+        'PC-Mixed': 2,    // Mixed content
+        'PC-Rip': 1,      // Compressed/stripped (smaller but lower quality)
+        'Nintendo': 2,
+        'Playstation': 2,
+        'Xbox': 2,
+        'Wii': 2
+    };
+    return scores[category] || 0;
 }
 
 /**
@@ -685,6 +807,144 @@ function deduplicateMovies(torrents) {
     return [...nonMovies, ...groupedMovies];
 }
 
+/**
+ * Group game torrents by normalized title
+ * Creates grouped objects with all versions accessible
+ * Detects UPDATE/DLC/PATCH patterns and stores them for display
+ * @param {Array} games - Array of game torrent objects
+ * @returns {Array} Array with grouped games
+ */
+function deduplicateGames(games) {
+    const gameGroups = {};
+
+    games.forEach(torrent => {
+        // Detect patterns BEFORE normalization (preserve for display)
+        const patterns = detectGamePatterns(torrent.name);
+        Object.assign(torrent, patterns);  // Store in torrent object
+
+        // Normalize for grouping
+        const normalizedTitle = normalizeGameTitle(torrent.name);
+
+        // Store cleaned display name (capitalized normalized title)
+        torrent.displayName = normalizedTitle
+            .split(' ')
+            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(' ');
+
+        if (!gameGroups[normalizedTitle]) {
+            gameGroups[normalizedTitle] = [];
+        }
+
+        gameGroups[normalizedTitle].push(torrent);
+    });
+
+    // Debug logging
+    console.log('=== GAME GROUPING DEBUG ===');
+    console.log('Total games:', games.length);
+    console.log('Unique normalized titles:', Object.keys(gameGroups).length);
+    Object.entries(gameGroups).forEach(([title, group]) => {
+        if (group.length > 1) {
+            console.log(`"${title}" has ${group.length} versions:`, group.map(g => g.name));
+        }
+    });
+    console.log('=== END DEBUG ===');
+
+    // Create grouped game objects
+    const groupedGames = Object.values(gameGroups).map(group => {
+        // Sort versions by: snatched (desc) → release type (desc) → seeders (desc) → date (desc)
+        const sortedVersions = group.sort((a, b) => {
+            // 1. Snatched count (higher is better - popularity)
+            if (b.snatched !== a.snatched) {
+                return b.snatched - a.snatched;
+            }
+
+            // 2. Release type score (ISO > Mixed > Rip)
+            const scoreA = getReleaseTypeScore(a.category);
+            const scoreB = getReleaseTypeScore(b.category);
+            if (scoreB !== scoreA) {
+                return scoreB - scoreA;
+            }
+
+            // 3. Seeders (higher is better - availability)
+            if (b.seeders !== a.seeders) {
+                return b.seeders - a.seeders;
+            }
+
+            // 4. Upload date (newer first)
+            return new Date(b.timestamp) - new Date(a.timestamp);
+        });
+
+        // Use the best version as the "main" torrent
+        const mainTorrent = { ...sortedVersions[0] };
+
+        // If multiple versions exist, mark as grouped and store all versions
+        if (sortedVersions.length > 1) {
+            mainTorrent.isGrouped = true;
+            mainTorrent.versions = sortedVersions;
+            mainTorrent.versionCount = sortedVersions.length;
+        }
+
+        return mainTorrent;
+    });
+
+    return groupedGames;
+}
+
+/**
+ * Deduplicate both movies and games by normalized title
+ * Wrapper function that applies appropriate deduplication to each content type
+ * @param {Array} torrents - Array of all torrent objects
+ * @returns {Array} Array with grouped movies, grouped games, and other torrents
+ */
+function deduplicateTorrents(torrents) {
+    // Check if deduplication is enabled
+    if (!AppState.pagination.enableDeduplication) {
+        return torrents;
+    }
+
+    const movieCategories = ['Movie/4K', 'Movie/BD-Rip', 'Movie/HD/Bluray', 'Movie/Web-DL', 'Movie/x265'];
+    const gameCategories = ['PC-ISO', 'PC-Rip', 'PC-Mixed', 'Nintendo', 'Playstation', 'Xbox', 'Wii'];
+
+    // Separate by content type
+    const movies = torrents.filter(t => movieCategories.includes(t.category));
+    const games = torrents.filter(t => gameCategories.includes(t.category));
+    const other = torrents.filter(t => !movieCategories.includes(t.category) && !gameCategories.includes(t.category));
+
+    // Apply movie deduplication (use existing logic)
+    const movieGroups = {};
+    movies.forEach(torrent => {
+        const normalizedTitle = normalizeMovieTitle(torrent.name);
+        if (!movieGroups[normalizedTitle]) {
+            movieGroups[normalizedTitle] = [];
+        }
+        movieGroups[normalizedTitle].push(torrent);
+    });
+
+    const groupedMovies = Object.values(movieGroups).map(group => {
+        const sortedVersions = group.sort((a, b) => {
+            if (b.snatched !== a.snatched) return b.snatched - a.snatched;
+            const scoreA = getQualityScore(a.metadata?.quality || '');
+            const scoreB = getQualityScore(b.metadata?.quality || '');
+            if (scoreB !== scoreA) return scoreB - scoreA;
+            return new Date(b.timestamp) - new Date(a.timestamp);
+        });
+
+        const mainTorrent = { ...sortedVersions[0] };
+        if (sortedVersions.length > 1) {
+            mainTorrent.isGrouped = true;
+            mainTorrent.versions = sortedVersions;
+            mainTorrent.versionCount = sortedVersions.length;
+        }
+        return mainTorrent;
+    });
+
+    // Apply game deduplication
+    const groupedGames = deduplicateGames(games);
+
+    // Combine all: other (untouched) + grouped movies + grouped games
+    return [...other, ...groupedMovies, ...groupedGames];
+}
+
 // ===================================================================
 // CLIENT-SIDE SORTING
 // ===================================================================
@@ -751,8 +1011,8 @@ function setupEventListeners() {
     document.getElementById('exclude-update-btn').addEventListener('click', addUpdateToExclude);
 
     // Refresh buttons (top and bottom)
-    document.getElementById('refresh-btn').addEventListener('click', () => refreshData(false));
-    document.getElementById('refresh-btn-bottom').addEventListener('click', () => refreshData(false));
+    document.getElementById('refresh-btn').addEventListener('click', () => refreshData());
+    document.getElementById('refresh-btn-bottom').addEventListener('click', () => refreshData());
 
     // Search with debounce
     document.getElementById('search-filter').addEventListener('input', onSearchInput);
@@ -1311,7 +1571,8 @@ function createTorrentRow(torrent) {
     const nameLink = document.createElement('a');
     nameLink.href = torrent.url || '#';
     nameLink.target = '_blank';
-    nameLink.textContent = torrent.name;
+    // Use cleaned display name for games, original name for others
+    nameLink.textContent = torrent.displayName || torrent.name;
     nameLink.className = 'torrent-link';
 
     nameCell.appendChild(nameLink);
@@ -1323,7 +1584,40 @@ function createTorrentRow(torrent) {
         nameCell.appendChild(freeleechBadge);
     }
 
-    // Add versions button if this is a grouped movie
+    // Add game indicator badges (UPDATE, DLC, PATCH)
+    if (isGameCategory(torrent.category)) {
+        if (torrent.hasUpdate) {
+            const updateChip = document.createElement('span');
+            updateChip.className = 'badge badge-update';
+            updateChip.textContent = torrent.updateVersion
+                ? `UPDATE ${torrent.updateVersion}`
+                : 'UPDATE';
+            updateChip.title = 'This is an update or patch';
+            nameCell.appendChild(updateChip);
+        }
+
+        if (torrent.isDLC) {
+            const dlcChip = document.createElement('span');
+            dlcChip.className = 'badge badge-dlc';
+            dlcChip.textContent = torrent.dlcName
+                ? `DLC: ${torrent.dlcName}`
+                : 'DLC';
+            dlcChip.title = 'This is DLC or expansion content';
+            nameCell.appendChild(dlcChip);
+        }
+
+        if (torrent.hasPatch) {
+            const patchChip = document.createElement('span');
+            patchChip.className = 'badge badge-patch';
+            patchChip.textContent = torrent.patchVersion
+                ? `PATCH ${torrent.patchVersion}`
+                : 'PATCH';
+            patchChip.title = 'This is a patch or hotfix';
+            nameCell.appendChild(patchChip);
+        }
+    }
+
+    // Add versions button if this is a grouped movie or game
     if (torrent.isGrouped) {
         const versionsBtn = document.createElement('button');
         versionsBtn.className = 'btn-versions';
@@ -1783,6 +2077,8 @@ function loadSettingsIntoUI() {
 }
 
 async function saveSettingsFromUI() {
+    const oldSettings = getSettings();
+
     const settings = {
         timeWindow: parseInt(document.getElementById('setting-time-window').value),
         autoRefresh: {
@@ -1802,6 +2098,9 @@ async function saveSettingsFromUI() {
         }
     };
 
+    // Check if time window changed
+    const timeWindowChanged = oldSettings.timeWindow !== settings.timeWindow;
+
     saveSettings(settings);
 
     closeSettings();
@@ -1811,6 +2110,12 @@ async function saveSettingsFromUI() {
 
     // Apply settings immediately
     applySettings(settings);
+
+    // If time window changed, trigger full refresh to fetch new data range
+    if (timeWindowChanged) {
+        showToast(`Time window changed to ${settings.timeWindow} days - fetching new data...`, 'info');
+        await loadFullData();
+    }
 }
 
 function updateTimeWindowInfo() {
@@ -2072,6 +2377,11 @@ async function sendToQbittorrent(torrentUrl, torrentName, buttonEl) {
 function isMovieCategory(category) {
     const movieCategories = ['Movie/4K', 'Movie/BD-Rip', 'Movie/HD/Bluray', 'Movie/Web-DL', 'Movie/x265'];
     return movieCategories.includes(category);
+}
+
+function isGameCategory(category) {
+    const gameCategories = ['PC-ISO', 'PC-Rip', 'PC-Mixed', 'Nintendo', 'Playstation', 'Xbox', 'Wii'];
+    return gameCategories.includes(category);
 }
 
 function extractMovieTitle(torrentName) {

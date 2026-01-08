@@ -232,6 +232,7 @@ class IPTorrentsScraper:
         """Fetch multiple pages concurrently for 3-5x faster performance"""
         torrents_per_page = 75  # IPTorrents typically shows 75 per page
         max_pages = 50  # Safety limit
+        batch_size = 10  # Fetch 10 pages per batch
 
         # Estimate pages needed (fetch first page to check, then parallelize rest)
         print(f"Fetching {category_name} torrents (multi-page concurrent)...")
@@ -251,30 +252,50 @@ class IPTorrentsScraper:
             print(f"  Already reached cutoff on page 1, stopping")
             return all_torrents
 
-        # Estimate pages needed (assume ~10 pages max for concurrency)
-        estimated_pages = min(10, max_pages - 1)  # -1 because we already fetched page 1
+        # Keep fetching batches until we hit the cutoff time or max_pages
+        current_page = 1
+        hit_cutoff = False
 
-        # Generate offsets for concurrent fetching
-        page_offsets = [(i + 1, (i + 1) * torrents_per_page) for i in range(estimated_pages)]
+        while current_page < max_pages and not hit_cutoff:
+            # Calculate batch range
+            batch_start = current_page
+            batch_end = min(current_page + batch_size, max_pages)
 
-        # Fetch pages concurrently (max 3 at a time to be nice to server)
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-            future_to_page = {
-                executor.submit(self._fetch_single_page, category_name, category_id, offset): (page_num, offset)
-                for page_num, offset in page_offsets
-            }
+            # Generate offsets for this batch
+            page_offsets = [(i, i * torrents_per_page) for i in range(batch_start, batch_end)]
 
-            for future in concurrent.futures.as_completed(future_to_page):
-                page_num, offset = future_to_page[future]
-                try:
-                    torrents = future.result()
-                    if torrents:
+            # Fetch pages concurrently (max 3 at a time to be nice to server)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+                future_to_page = {
+                    executor.submit(self._fetch_single_page, category_name, category_id, offset): (page_num, offset)
+                    for page_num, offset in page_offsets
+                }
+
+                for future in concurrent.futures.as_completed(future_to_page):
+                    page_num, offset = future_to_page[future]
+                    try:
+                        torrents = future.result()
+                        if not torrents:
+                            # No more torrents available
+                            hit_cutoff = True
+                            continue
+
                         # Filter torrents within time range
                         within_range = [t for t in torrents if t['timestamp'] >= cutoff_time]
                         all_torrents.extend(within_range)
-                        print(f"  Page {page_num}: Found {len(torrents)} torrents, {len(within_range)} within time range")
-                except Exception as e:
-                    print(f"  Error fetching page {page_num}: {e}")
+                        print(f"  Page {page_num + 1}: Found {len(torrents)} torrents, {len(within_range)} within time range")
+
+                        # Check if we hit the cutoff on this page
+                        oldest_on_page = min(torrents, key=lambda x: x['timestamp'])
+                        if oldest_on_page['timestamp'] < cutoff_time:
+                            hit_cutoff = True
+                            print(f"  Reached cutoff on page {page_num + 1}, stopping")
+
+                    except Exception as e:
+                        print(f"  Error fetching page {page_num + 1}: {e}")
+
+            # Move to next batch
+            current_page = batch_end
 
         print(f"  Total torrents fetched: {len(all_torrents)}")
         return all_torrents
