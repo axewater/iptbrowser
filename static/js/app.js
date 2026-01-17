@@ -140,12 +140,10 @@ class MovieMetadataLoader {
 
             // Try IMDB ID first if available
             if (torrent.imdb_id) {
-                console.log(`Fetching via IMDB ID: ${torrent.imdb_id}`);
                 movieData = await this.tmdbClient.findByIMDBId(torrent.imdb_id);
             } else if (torrent.metadata?.year) {
                 // Fallback: search by title and year
                 const cleanTitle = extractMovieTitle(torrent.name);
-                console.log(`Fetching "${cleanTitle}" (${torrent.metadata.year})`);
                 movieData = await this.tmdbClient.findByTitleAndYear(cleanTitle, torrent.metadata.year);
             } else {
                 throw new Error('No IMDB ID or year available');
@@ -160,11 +158,13 @@ class MovieMetadataLoader {
             }
 
         } catch (error) {
-            console.error('Error fetching TMDB data:', error);
+            // Silently handle "not found" cases, only log real errors
+            if (!error.message.includes('not found') && !error.message.includes('No results')) {
+                console.warn('TMDB fetch error:', error.message);
+            }
             metadataCell.innerHTML = `
                 <div class="metadata-error">
-                    <p>Could not load movie data: ${error.message}</p>
-                    <p class="error-hint">Check TMDB API key in settings or try refreshing.</p>
+                    <p>Could not load movie data</p>
                 </div>
             `;
         }
@@ -263,8 +263,6 @@ class GameMetadataLoader {
             const normalizedName = torrent.displayName || normalizeGameTitle(torrent.name);
             const platform = detectPlatform(torrent.category);
 
-            console.log(`Fetching game metadata: "${normalizedName}" (${platform})`);
-
             const gameData = await this.igdbClient.searchGame(normalizedName, platform);
 
             // Render the content
@@ -275,11 +273,13 @@ class GameMetadataLoader {
             AppState.sessionMetadataCache[cacheKey] = gameData;
 
         } catch (error) {
-            console.error('Error fetching IGDB data:', error);
+            // Silently handle "not found" cases, only log real errors
+            if (!error.message.includes('not found') && !error.message.includes('Game not found')) {
+                console.warn('IGDB fetch error:', error.message);
+            }
             metadataCell.innerHTML = `
                 <div class="metadata-error">
-                    <p>Could not load game data: ${error.message}</p>
-                    <p class="error-hint">Game may not be in IGDB database or check network connection.</p>
+                    <p>Could not load game data</p>
                 </div>
             `;
         }
@@ -307,7 +307,7 @@ let searchTimeout = null;
 // ===================================================================
 
 document.addEventListener('DOMContentLoaded', async function() {
-    console.log('IPTorrents Browser loaded - Optimized version');
+    console.log('IPTorrents Browser ready');
 
     // Load saved settings and filters
     loadSavedSettings();
@@ -321,7 +321,6 @@ document.addEventListener('DOMContentLoaded', async function() {
 });
 
 async function initializeApp() {
-    console.log('Initializing app...');
 
     // 1. Load cached data immediately (instant page load)
     await loadCachedData();
@@ -494,8 +493,6 @@ async function refreshData(force = true) {
 
         const response = await fetch(url);
         const data = await response.json();
-
-        console.log('Refresh response:', data);
 
         // Full refresh - fetch all data
         await loadFullData();
@@ -938,9 +935,16 @@ function deduplicateMovies(torrents) {
  * @returns {Array} Array with grouped games
  */
 function deduplicateGames(games) {
+    // Safety: Remove duplicates by ID first (prevents grouping duplicates)
+    const uniqueGames = Array.from(new Map(games.map(g => [g.id, g])).values());
+    const duplicatesRemoved = games.length - uniqueGames.length;
+    if (duplicatesRemoved > 0) {
+        console.warn(`Removed ${duplicatesRemoved} duplicate torrents (same ID)`);
+    }
+
     const gameGroups = {};
 
-    games.forEach(torrent => {
+    uniqueGames.forEach(torrent => {
         // Detect patterns BEFORE normalization (preserve for display)
         const patterns = detectGamePatterns(torrent.name);
         Object.assign(torrent, patterns);  // Store in torrent object
@@ -961,16 +965,11 @@ function deduplicateGames(games) {
         gameGroups[normalizedTitle].push(torrent);
     });
 
-    // Debug logging
-    console.log('=== GAME GROUPING DEBUG ===');
-    console.log('Total games:', games.length);
-    console.log('Unique normalized titles:', Object.keys(gameGroups).length);
-    Object.entries(gameGroups).forEach(([title, group]) => {
-        if (group.length > 1) {
-            console.log(`"${title}" has ${group.length} versions:`, group.map(g => g.name));
-        }
-    });
-    console.log('=== END DEBUG ===');
+    // Group statistics
+    const groupedCount = Object.values(gameGroups).filter(g => g.length > 1).length;
+    if (groupedCount > 0) {
+        console.log(`Grouped ${games.length} games into ${Object.keys(gameGroups).length} titles (${groupedCount} with multiple versions)`);
+    }
 
     // Create grouped game objects
     const groupedGames = Object.values(gameGroups).map(group => {
@@ -1369,11 +1368,35 @@ function displayTorrents(torrents) {
 
     torrents.forEach(torrent => {
         const row = createTorrentRow(torrent);
+
+        // Add game group identifier for game categories
+        if (isGameCategory(torrent.category)) {
+            row.dataset.gameGroup = torrent.id;
+            row.classList.add('game-group-main', 'group-first-row');
+
+            // If no metadata and no versions, this is also the last row
+            if (!torrent.metadata && !torrent.isGrouped) {
+                row.classList.add('group-last-row');
+            }
+        }
+
         fragment.appendChild(row);
 
         // If movie torrent with TMDB enabled, create expanded row
         if (row.dataset.autoExpand === 'true') {
             const metadataRow = createExpandedMetadataRow(torrent);
+
+            // Link metadata row to game group
+            if (isGameCategory(torrent.category)) {
+                metadataRow.dataset.gameGroup = torrent.id;
+                metadataRow.classList.add('game-group-metadata');
+
+                // If no versions, metadata is the last row
+                if (!torrent.isGrouped) {
+                    metadataRow.classList.add('group-last-row');
+                }
+            }
+
             fragment.appendChild(metadataRow);
             torrentsNeedingMetadata.push(torrent);
         }
@@ -1401,10 +1424,8 @@ function displayTorrents(torrents) {
         });
 
         if (torrentsToLoad.length > 0) {
-            console.log(`Starting progressive load for ${torrentsToLoad.length} movies (${torrentsNeedingMetadata.length - torrentsToLoad.length} cached)`);
+            console.log(`Loading metadata for ${torrentsToLoad.length} movies (${torrentsNeedingMetadata.length - torrentsToLoad.length} cached)`);
             AppState.metadataLoader.enqueue(torrentsToLoad);
-        } else {
-            console.log('All movies cached, no loading needed');
         }
     }
 
@@ -1432,10 +1453,8 @@ function displayTorrents(torrents) {
         });
 
         if (gamesToLoad.length > 0) {
-            console.log(`Starting progressive load for ${gamesToLoad.length} games (${gamesTorents.length - gamesToLoad.length} cached)`);
+            console.log(`Loading metadata for ${gamesToLoad.length} games (${gamesTorents.length - gamesToLoad.length} cached)`);
             AppState.gameMetadataLoader.enqueue(gamesToLoad);
-        } else if (gamesTorents.length > 0) {
-            console.log('All games cached, no loading needed');
         }
     }
 }
@@ -1901,9 +1920,11 @@ function toggleVersions(torrentId) {
         if (versionsRow.style.display === 'none') {
             versionsRow.style.display = 'table-row';
             if (btn) btn.textContent = `Hide ${torrent.versionCount} versions`;
+            updateGameGroupClasses(torrentId, true);
         } else {
             versionsRow.style.display = 'none';
             if (btn) btn.textContent = `Show ${torrent.versionCount} versions`;
+            updateGameGroupClasses(torrentId, false);
         }
     } else {
         // Create versions row
@@ -1916,6 +1937,39 @@ function toggleVersions(torrentId) {
                 mainRow.parentNode.appendChild(versionsRow);
             }
             if (btn) btn.textContent = `Hide ${torrent.versionCount} versions`;
+            updateGameGroupClasses(torrentId, true);
+        }
+    }
+}
+
+/**
+ * Update group-last-row class when versions are toggled
+ */
+function updateGameGroupClasses(torrentId, versionsVisible) {
+    const mainRow = document.getElementById(`torrent-row-${torrentId}`);
+    const metadataRow = document.getElementById(`metadata-row-${torrentId}`);
+    const versionsRow = document.getElementById(`versions-row-${torrentId}`);
+
+    if (!mainRow) return;
+
+    // Determine the category
+    const torrent = AppState.allTorrents.find(t => t.id == torrentId);
+    if (!torrent || !isGameCategory(torrent.category)) return;
+
+    if (versionsVisible && versionsRow) {
+        // Versions row is now the last row
+        if (metadataRow) {
+            metadataRow.classList.remove('group-last-row');
+        } else {
+            mainRow.classList.remove('group-last-row');
+        }
+        versionsRow.classList.add('group-last-row');
+    } else {
+        // Metadata row (or main row) is the last row
+        if (metadataRow) {
+            metadataRow.classList.add('group-last-row');
+        } else {
+            mainRow.classList.add('group-last-row');
         }
     }
 }
@@ -1927,6 +1981,12 @@ function createVersionsRow(torrent) {
     const versionsRow = document.createElement('tr');
     versionsRow.id = `versions-row-${torrent.id}`;
     versionsRow.className = 'versions-row';
+
+    // Add game group identifier for game categories
+    if (isGameCategory(torrent.category)) {
+        versionsRow.dataset.gameGroup = torrent.id;
+        versionsRow.classList.add('game-group-versions', 'group-last-row');
+    }
 
     const versionsCell = document.createElement('td');
     versionsCell.colSpan = 9; // Span all columns
@@ -2480,7 +2540,9 @@ async function loadQbittorrentSettings() {
         const config = await response.json();
         AppState.qbittorrentEnabled = config.enabled;
         AppState.qbittorrentConfig = config;
-        console.log('qBittorrent integration:', config.enabled ? 'enabled' : 'disabled');
+        if (config.enabled) {
+            console.log('qBittorrent integration enabled');
+        }
     } catch (error) {
         console.error('Error loading qBittorrent settings:', error);
         AppState.qbittorrentEnabled = false;
@@ -2641,8 +2703,6 @@ function loadTMDBSettings() {
     const savedApiKey = localStorage.getItem('tmdb_api_key');
     const savedEnabled = localStorage.getItem('tmdb_enabled') === 'true';
 
-    console.log('Loading TMDB settings:', { hasApiKey: !!savedApiKey, enabled: savedEnabled });
-
     if (savedApiKey && savedEnabled) {
         AppState.tmdbApiKey = savedApiKey;
         AppState.tmdbEnabled = true;
@@ -2651,12 +2711,10 @@ function loadTMDBSettings() {
         if (typeof TMDBClient !== 'undefined') {
             AppState.tmdbClient = new TMDBClient(savedApiKey);
             AppState.metadataLoader = new MovieMetadataLoader(AppState.tmdbClient, 250);
-            console.log('TMDB integration enabled with progressive loader');
+            console.log('TMDB integration enabled');
         } else {
             console.error('TMDBClient not found! Make sure tmdb_client.js is loaded.');
         }
-    } else {
-        console.log('TMDB not enabled:', savedEnabled ? 'No API key' : 'Disabled in settings');
     }
 }
 
@@ -2735,8 +2793,6 @@ function renderGameMetadataContent(gameData) {
 function loadIGDBSettings() {
     const savedEnabled = localStorage.getItem('igdb_enabled') === 'true';
 
-    console.log('Loading IGDB settings:', { enabled: savedEnabled });
-
     if (savedEnabled) {
         AppState.igdbEnabled = true;
 
@@ -2744,12 +2800,10 @@ function loadIGDBSettings() {
         if (typeof IGDBClient !== 'undefined') {
             AppState.igdbClient = new IGDBClient();
             AppState.gameMetadataLoader = new GameMetadataLoader(AppState.igdbClient, 250);
-            console.log('IGDB integration enabled with progressive loader');
+            console.log('IGDB integration enabled');
         } else {
             console.error('IGDBClient not found! Make sure igdb_client.js is loaded.');
         }
-    } else {
-        console.log('IGDB not enabled');
     }
 }
 

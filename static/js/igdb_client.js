@@ -33,11 +33,8 @@ class IGDBClient {
         // Check cache first
         const cached = this._getFromCache(cacheKey);
         if (cached) {
-            console.log(`IGDB: Cache hit for "${gameName}" (${platform || 'any'})`);
             return cached;
         }
-
-        console.log(`IGDB: Searching for "${gameName}" (platform: ${platform || 'any'})`);
 
         try {
             // Call backend proxy
@@ -68,7 +65,7 @@ class IGDBClient {
             }
 
         } catch (error) {
-            console.error(`IGDB error for "${gameName}":`, error);
+            // Re-throw for caller to handle
             throw error;
         }
     }
@@ -102,12 +99,10 @@ class IGDBClient {
         try {
             const cacheStr = localStorage.getItem(this.cacheKey);
             if (cacheStr) {
-                const cache = JSON.parse(cacheStr);
-                console.log(`IGDB: Loaded cache with ${Object.keys(cache).length} entries`);
-                return cache;
+                return JSON.parse(cacheStr);
             }
         } catch (error) {
-            console.error('Error loading IGDB cache:', error);
+            console.warn('Error loading IGDB cache:', error);
         }
         return {};
     }
@@ -119,14 +114,14 @@ class IGDBClient {
         try {
             localStorage.setItem(this.cacheKey, JSON.stringify(this.cache));
         } catch (error) {
-            console.error('Error saving IGDB cache:', error);
+            console.warn('Error saving IGDB cache - attempting cleanup');
             // If quota exceeded, try to cleanup old entries
             this._cleanupCache();
             // Retry save after cleanup
             try {
                 localStorage.setItem(this.cacheKey, JSON.stringify(this.cache));
             } catch (retryError) {
-                console.error('Error saving cache after cleanup:', retryError);
+                console.warn('Cache quota exceeded after cleanup');
             }
         }
     }
@@ -181,7 +176,6 @@ class IGDBClient {
         }
 
         if (cleaned) {
-            console.log('IGDB: Cleaned up expired cache entries');
             this._saveCache();
         }
     }
@@ -192,7 +186,6 @@ class IGDBClient {
     clearCache() {
         this.cache = {};
         localStorage.removeItem(this.cacheKey);
-        console.log('IGDB: Cache cleared');
     }
 
     /**
@@ -226,7 +219,7 @@ class IGDBClient {
             return await response.json();
 
         } catch (error) {
-            console.error('IGDB backend status check failed:', error);
+            console.warn('IGDB backend status check failed:', error.message);
             return {
                 configured: false,
                 enabled: false,
@@ -255,7 +248,7 @@ class IGDBClient {
             return await response.json();
 
         } catch (error) {
-            console.error('IGDB connection test failed:', error);
+            console.warn('IGDB connection test failed:', error.message);
             return {
                 success: false,
                 message: error.message

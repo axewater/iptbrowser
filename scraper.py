@@ -252,7 +252,7 @@ class IPTorrentsScraper:
 
     def _fetch_category_pages(self, category_name, category_id, cutoff_time):
         """Fetch multiple pages concurrently with rate limiting to prevent 429 errors"""
-        torrents_per_page = 75  # IPTorrents typically shows 75 per page
+        torrents_per_page = 50  # IPTorrents actually shows 50 per page (not 75)
         max_pages = 50  # Safety limit
         batch_size = 5  # Reduced from 10 to 5 pages per batch for gentler rate limiting
         request_delay = 0.5  # 500ms delay between individual requests

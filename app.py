@@ -309,11 +309,22 @@ def refresh_torrents(mode='full', categories=None, days=None, force=False):
                 'default_window_days': days,
                 'categories': categories_meta
             }
-            torrents_cache['data'] = torrents
+
+            # Deduplicate by torrent ID before caching (safety check)
+            unique_torrents = {}
+            for t in torrents:
+                if t['id'] not in unique_torrents:
+                    unique_torrents[t['id']] = t
+
+            deduplicated = list(unique_torrents.values())
+            if len(deduplicated) < len(torrents):
+                print(f"  [SAFETY] Removed {len(torrents) - len(deduplicated)} duplicate torrents before caching")
+
+            torrents_cache['data'] = deduplicated
 
             save_cache()
 
-            return torrents, _get_cache_metadata(fetched_new=len(torrents))
+            return deduplicated, _get_cache_metadata(fetched_new=len(deduplicated))
 
         except Exception as e:
             print(f"Error fetching torrents: {e}")
@@ -1124,10 +1135,11 @@ def api_igdb_search():
                 'data': game_data
             })
         else:
+            # Return 200 OK - "not found" is a valid response, not an error
             return jsonify({
                 'success': False,
                 'error': 'Game not found in IGDB database'
-            }), 404
+            })
 
     except Exception as e:
         logger.error(f"IGDB search error: {e}")

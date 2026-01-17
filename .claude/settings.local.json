@@ -15,7 +15,9 @@
       "WebFetch(domain:api-docs.igdb.com)",
       "Bash(python:*)",
       "WebFetch(domain:www.iptorrents.com)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(del cache.json)",
+      "Bash(dir \"C:\\\\Scripts\\\\iptbrowser\\\\templates\")"
     ]
   }
 }

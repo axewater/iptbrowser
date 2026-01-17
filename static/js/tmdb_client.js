@@ -29,11 +29,8 @@ class TMDBClient {
         // Check cache first
         const cached = this._getFromCache(imdbId);
         if (cached) {
-            console.log(`TMDB: Cache hit for ${imdbId}`);
             return cached;
         }
-
-        console.log(`TMDB: Fetching data for ${imdbId}`);
 
         try {
             // Step 1: Find TMDB movie ID using IMDB ID
@@ -73,7 +70,7 @@ class TMDBClient {
             return movieData;
 
         } catch (error) {
-            console.error(`TMDB error for ${imdbId}:`, error);
+            // Re-throw for caller to handle
             throw error;
         }
     }
@@ -104,11 +101,8 @@ class TMDBClient {
         // Check cache first
         const cached = this._getFromCache(cacheKey);
         if (cached) {
-            console.log(`TMDB: Cache hit for "${title}" (${year})`);
             return cached;
         }
-
-        console.log(`TMDB: Searching for "${title}" (${year})`);
 
         try {
             // Step 1: Search for movie by title and year
@@ -124,7 +118,6 @@ class TMDBClient {
             // Check if we found any results
             if (!searchData.results || searchData.results.length === 0) {
                 // Try again without year as fallback
-                console.log(`No exact match, trying without year...`);
                 const fallbackUrl = `${this.baseUrl}/search/movie?api_key=${this.apiKey}&query=${encodeURIComponent(title)}`;
                 const fallbackResponse = await fetch(fallbackUrl);
 
@@ -142,7 +135,6 @@ class TMDBClient {
                             const details = await detailsResponse.json();
                             const movieData = this._formatMovieData(details);
                             this._saveToCache(cacheKey, movieData);
-                            console.log(`Found via fallback: ${movieData.title}`);
                             return movieData;
                         }
                     }
@@ -174,7 +166,7 @@ class TMDBClient {
             return movieData;
 
         } catch (error) {
-            console.error(`TMDB error for "${title}" (${year}):`, error);
+            // Re-throw for caller to handle
             throw error;
         }
     }
@@ -244,7 +236,7 @@ class TMDBClient {
                 return JSON.parse(cacheStr);
             }
         } catch (error) {
-            console.error('Error loading TMDB cache:', error);
+            console.warn('Error loading TMDB cache:', error);
         }
         return {};
     }
@@ -256,7 +248,7 @@ class TMDBClient {
         try {
             localStorage.setItem(this.cacheKey, JSON.stringify(this.cache));
         } catch (error) {
-            console.error('Error saving TMDB cache:', error);
+            console.warn('Error saving TMDB cache - attempting cleanup');
             // If quota exceeded, clear old entries
             this._cleanupCache();
         }
@@ -323,7 +315,6 @@ class TMDBClient {
     clearCache() {
         this.cache = {};
         localStorage.removeItem(this.cacheKey);
-        console.log('TMDB cache cleared');
     }
 
     /**

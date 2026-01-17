@@ -323,6 +323,8 @@ body {
 /* Table */
 .table-container {
     overflow-x: auto;
+    overflow-y: visible;  /* Ensure shadows aren't clipped */
+    padding-bottom: 20px;  /* Extra space for shadows */
 }
 
 .torrents-table {
@@ -1380,5 +1382,118 @@ body {
     .btn-versions {
         font-size: 0.7rem;
         padding: 3px 8px;
+    }
+}
+
+/* ===================================================================
+   GAME VISUAL GROUPING
+   ================================================================== */
+
+/* Base game group row styling */
+tr[data-game-group] {
+    background-color: var(--bg-secondary);
+    border-left: 3px solid var(--accent-primary);
+    border-right: 3px solid var(--accent-primary);
+}
+
+/* First row of group - top border */
+tr.group-first-row {
+    border-top: 3px solid var(--accent-primary);
+}
+
+/* Last row of group - bottom border and shadow */
+tr.group-last-row {
+    border-bottom: 3px solid var(--accent-primary);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+/* Main game row - slightly darker background */
+tr.game-group-main {
+    background-color: var(--bg-tertiary);
+}
+
+/* Metadata row - standard background */
+tr.game-group-metadata {
+    background-color: var(--bg-secondary);
+}
+
+/* Versions row - slightly lighter background */
+tr.game-group-versions {
+    background-color: var(--bg-primary);
+}
+
+/* Rounded corners on first row cells */
+tr.group-first-row td:first-child {
+    border-top-left-radius: 8px;
+}
+
+tr.group-first-row td:last-child {
+    border-top-right-radius: 8px;
+}
+
+/* Rounded corners on last row cells */
+tr.group-last-row td:first-child {
+    border-bottom-left-radius: 8px;
+}
+
+tr.group-last-row td:last-child {
+    border-bottom-right-radius: 8px;
+}
+
+/* Remove internal borders between group rows */
+tr[data-game-group]:not(.group-last-row) td {
+    border-bottom: 1px solid rgba(58, 58, 58, 0.3);
+}
+
+/* Single game row (no metadata, no versions) - all-around border */
+tr.game-group-main.group-first-row.group-last-row {
+    border: 3px solid var(--accent-primary);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+tr.game-group-main.group-first-row.group-last-row td:first-child {
+    border-radius: 8px 0 0 8px;
+}
+
+tr.game-group-main.group-first-row.group-last-row td:last-child {
+    border-radius: 0 8px 8px 0;
+}
+
+/* Stronger shadow for expanded groups */
+tr.game-group-metadata.group-last-row,
+tr.game-group-versions.group-last-row {
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5);
+}
+
+/* Hover effect for entire group */
+tr[data-game-group]:hover {
+    background-color: var(--bg-hover);
+}
+
+/* Spacing between game groups using wrapper table styling */
+tr.group-last-row {
+    margin-bottom: 15px;
+}
+
+/* Ensure table allows border-radius */
+.torrents-table {
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    tr[data-game-group] {
+        border-left-width: 2px;
+        border-right-width: 2px;
+    }
+
+    tr.group-first-row {
+        border-top-width: 2px;
+    }
+
+    tr.group-last-row {
+        border-bottom-width: 2px;
+        box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
     }
 }
