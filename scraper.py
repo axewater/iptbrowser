@@ -10,6 +10,7 @@ from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import concurrent.futures
+import time
 
 # Load environment variables
 load_dotenv()
@@ -93,7 +94,7 @@ class IPTorrentsScraper:
             cutoff_time = datetime.now() - timedelta(days=days)
             print(f"Fetching torrents from last {days} days (since {cutoff_time.strftime('%Y-%m-%d %H:%M')})")
 
-        for category_name in categories:
+        for idx, category_name in enumerate(categories):
             if category_name not in CATEGORIES:
                 print(f"Warning: Unknown category '{category_name}', skipping")
                 continue
@@ -108,6 +109,10 @@ class IPTorrentsScraper:
 
             all_torrents.extend(torrents)
             print(f"  Total: {len(torrents)} torrents in {category_name}")
+
+            # Add delay between categories to avoid rate limiting (skip delay after last category)
+            if days and idx < len(categories) - 1:
+                time.sleep(2.0)
 
         # Sort by date (newest first) and apply limit
         all_torrents.sort(key=lambda x: x['timestamp'], reverse=True)
@@ -133,7 +138,7 @@ class IPTorrentsScraper:
 
         print(f"Fetching incremental updates for {len(categories)} categories...")
 
-        for category_name in categories:
+        for idx, category_name in enumerate(categories):
             if category_name not in CATEGORIES:
                 print(f"Warning: Unknown category '{category_name}', skipping")
                 continue
@@ -147,17 +152,20 @@ class IPTorrentsScraper:
                 torrents = self._fetch_single_page(category_name, category_id, offset=0)
                 all_new_torrents.extend(torrents)
                 print(f"    Found {len(torrents)} torrents")
-                continue
-
-            # Fetch pages until we hit the cutoff timestamp
-            print(f"  {category_name}: Checking for new torrents since {cutoff_timestamp.strftime('%Y-%m-%d %H:%M')}")
-            torrents = self._fetch_until_timestamp(category_name, category_id, cutoff_timestamp)
-
-            all_new_torrents.extend(torrents)
-            if torrents:
-                print(f"    Found {len(torrents)} new torrents")
             else:
-                print(f"    No new torrents")
+                # Fetch pages until we hit the cutoff timestamp
+                print(f"  {category_name}: Checking for new torrents since {cutoff_timestamp.strftime('%Y-%m-%d %H:%M')}")
+                torrents = self._fetch_until_timestamp(category_name, category_id, cutoff_timestamp)
+
+                all_new_torrents.extend(torrents)
+                if torrents:
+                    print(f"    Found {len(torrents)} new torrents")
+                else:
+                    print(f"    No new torrents")
+
+            # Add delay between categories (skip delay after last category)
+            if idx < len(categories) - 1:
+                time.sleep(1.0)
 
         # Sort by date (newest first)
         all_new_torrents.sort(key=lambda x: x['timestamp'], reverse=True)
@@ -204,14 +212,17 @@ class IPTorrentsScraper:
             if hit_cutoff:
                 break
 
+            # Add delay between pages to avoid rate limiting
+            time.sleep(0.5)
+
             # Move to next page
             offset += torrents_per_page
             page_num += 1
 
         return new_torrents
 
-    def _fetch_single_page(self, category_name, category_id, offset=0):
-        """Fetch a single page of torrents"""
+    def _fetch_single_page(self, category_name, category_id, offset=0, retry_count=0, max_retries=3):
+        """Fetch a single page of torrents with exponential backoff retry for 429 errors"""
         if offset > 0:
             url = f"{BASE_URL}/t?{category_id};o={offset}"
         else:
@@ -224,18 +235,30 @@ class IPTorrentsScraper:
             torrents = self._parse_torrents(response.text, category_name)
             return torrents
 
+        except requests.HTTPError as e:
+            # Handle 429 Too Many Requests with exponential backoff
+            if e.response.status_code == 429 and retry_count < max_retries:
+                wait_time = 2 ** retry_count  # Exponential backoff: 1s, 2s, 4s
+                print(f"  Rate limited (429) on {category_name} (offset {offset}), waiting {wait_time}s before retry {retry_count + 1}/{max_retries}")
+                time.sleep(wait_time)
+                return self._fetch_single_page(category_name, category_id, offset, retry_count + 1, max_retries)
+            else:
+                print(f"  Error fetching {category_name} (offset {offset}): {e}")
+                return []
+
         except requests.RequestException as e:
             print(f"  Error fetching {category_name} (offset {offset}): {e}")
             return []
 
     def _fetch_category_pages(self, category_name, category_id, cutoff_time):
-        """Fetch multiple pages concurrently for 3-5x faster performance"""
+        """Fetch multiple pages concurrently with rate limiting to prevent 429 errors"""
         torrents_per_page = 75  # IPTorrents typically shows 75 per page
         max_pages = 50  # Safety limit
-        batch_size = 10  # Fetch 10 pages per batch
+        batch_size = 5  # Reduced from 10 to 5 pages per batch for gentler rate limiting
+        request_delay = 0.5  # 500ms delay between individual requests
 
         # Estimate pages needed (fetch first page to check, then parallelize rest)
-        print(f"Fetching {category_name} torrents (multi-page concurrent)...")
+        print(f"Fetching {category_name} torrents (multi-page with rate limiting)...")
 
         # Fetch first page to check if we have any data
         first_page = self._fetch_single_page(category_name, category_id, 0)
@@ -264,8 +287,8 @@ class IPTorrentsScraper:
             # Generate offsets for this batch
             page_offsets = [(i, i * torrents_per_page) for i in range(batch_start, batch_end)]
 
-            # Fetch pages concurrently (max 3 at a time to be nice to server)
-            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            # Fetch pages concurrently (reduced to max 2 workers for gentler rate limiting)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
                 future_to_page = {
                     executor.submit(self._fetch_single_page, category_name, category_id, offset): (page_num, offset)
                     for page_num, offset in page_offsets
@@ -291,8 +314,15 @@ class IPTorrentsScraper:
                             hit_cutoff = True
                             print(f"  Reached cutoff on page {page_num + 1}, stopping")
 
+                        # Add delay after each successful page fetch to avoid rate limiting
+                        time.sleep(request_delay)
+
                     except Exception as e:
                         print(f"  Error fetching page {page_num + 1}: {e}")
+
+            # Add delay between batches (1.5 seconds)
+            if not hit_cutoff and current_page + batch_size < max_pages:
+                time.sleep(1.5)
 
             # Move to next batch
             current_page = batch_end
